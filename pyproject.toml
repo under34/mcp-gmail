@@ -1,0 +1,40 @@
+[project]
+name = "gmail-mcp"
+version = "0.1.0"
+description = "Local MCP service for privacy-aware Gmail summaries."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "anthropic==0.117.0",
+  "google-api-python-client==2.198.0",
+  "google-auth-oauthlib==1.4.0",
+  "mcp>=1.27,<2",
+  "openai==2.38.0",
+  "platformdirs>=4.3,<5",
+  "python-dotenv>=1.1,<2",
+]
+
+[project.scripts]
+gmail-mcp = "gmail_mcp.bootstrap.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<0.12",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["_bmad", "_bmad-output", ".agents", ".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
