@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from gmail_mcp.adapters.sqlite_analysis_state import SqliteAnalysisStateAdapter
 from gmail_mcp.application.analysis_state import AnalysisStateError, FinishAnalysis, PlanAnalysis
 from gmail_mcp.domain.analysis_state import ThreadCandidate
+from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
 def _candidate(
@@ -32,6 +33,20 @@ def test_empty_plan_is_immediately_complete(tmp_path) -> None:
     run = state.plan("account", [], filter_hash="filter")
 
     assert run.status == "complete"
+
+
+def test_sqlite_persists_validated_summary_without_thread_body(tmp_path) -> None:
+    database = tmp_path / "state.sqlite3"
+    state = SqliteAnalysisStateAdapter(database)
+    summary = ThreadSummary("account", "thread", "Krótko.", "niski", (), "openai")
+
+    state.save(summary, run_id="run")
+
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT summary, priority, actions_json, provider FROM thread_summary"
+        ).fetchone()
+    assert row == ("Krótko.", "niski", "[]", "openai")
 
 
 def test_expired_running_run_releases_its_claim_before_next_plan(tmp_path) -> None:

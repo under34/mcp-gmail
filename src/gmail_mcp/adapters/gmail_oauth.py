@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
+from base64 import urlsafe_b64decode
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from gmail_mcp.application.analysis_state import GmailCandidateError
+from gmail_mcp.application.thread_content import sanitize_thread_text
 from gmail_mcp.domain.analysis_state import ThreadCandidate
 from gmail_mcp.domain.gmail_connection import ConnectionResult
 
@@ -178,6 +180,49 @@ class GmailOAuthAdapter:
                 raise GmailCandidateError("Gmail candidate discovery failed.")
             seen_tokens.add(next_token)
             page_token = str(next_token)
+
+    def fetch_clean_text(self, candidate: ThreadCandidate) -> str:
+        """Fetch one claimed thread transiently; attachments are never fetched or persisted."""
+        connection = self.require_connection()
+        if connection.status != "complete" or not connection.email_address:
+            raise GmailCandidateError("Gmail authorization is unavailable.")
+        if hashlib.sha256(connection.email_address.strip().lower().encode()).hexdigest() != (
+            candidate.account_fingerprint
+        ):
+            raise GmailCandidateError("Gmail account changed during thread retrieval.")
+        credentials = self._load_credentials()
+        if credentials is None:
+            raise GmailCandidateError("Gmail authorization is unavailable.")
+        try:
+            service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
+            thread = service.users().threads().get(
+                userId="me", id=candidate.thread_id, format="full"
+            ).execute()
+        except HttpError as error:
+            raise GmailCandidateError("Gmail thread retrieval failed.") from error
+        messages = thread.get("messages", [])
+        if not messages or str(messages[-1].get("id")) != candidate.latest_message_id:
+            raise GmailCandidateError("Gmail thread changed before analysis.")
+        text = "\n".join(self._plain_text(message.get("payload", {})) for message in messages)
+        cleaned = sanitize_thread_text(text)
+        if not cleaned:
+            raise GmailCandidateError("Gmail thread has no analyzable text.")
+        return cleaned
+
+    @classmethod
+    def _plain_text(cls, part: object) -> str:
+        if not isinstance(part, dict):
+            return ""
+        if part.get("filename") or part.get("body", {}).get("attachmentId"):
+            return ""
+        mime_type = part.get("mimeType")
+        body = part.get("body", {})
+        if mime_type == "text/plain" and isinstance(body, dict) and body.get("data"):
+            try:
+                return urlsafe_b64decode(str(body["data"]) + "===").decode("utf-8", "replace")
+            except ValueError:
+                return ""
+        return "\n".join(cls._plain_text(item) for item in part.get("parts", []))
 
     @staticmethod
     def _message_time(message: dict[str, object]) -> str:
