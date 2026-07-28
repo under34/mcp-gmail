@@ -19,7 +19,7 @@ Ten dokument rozkłada wymagania PRD i Architecture Spine na implementowalne epi
 
 ### Functional Requirements
 
-- **FR-1:** Użytkownik łączy jedno Konto Gmail przez OAuth wyłącznie z zakresem `gmail.readonly`, widzi konto, może się odłączyć i otrzymuje jasny błąd ponownej autoryzacji.
+- **FR-1:** Użytkownik łączy jedno aktywne Konto Gmail naraz przez OAuth wyłącznie z zakresem `gmail.readonly`, widzi konto, może się odłączyć i otrzymuje jasny błąd ponownej autoryzacji; lokalna konfiguracja kont pozostaje odseparowana.
 - **FR-2:** Użytkownik definiuje, podgląda, zapisuje i zmienia Filtr Gmail; zapisany filtr staje się Aktywnym Filtrem Gmail, a nieobsługiwany filtr nie rozszerza zakresu analizy.
 - **FR-3:** Digest obejmuje tylko nowe Wątki lub Wątki, które zaczęły spełniać Aktywny Filtr Gmail, deduplikuje niezmienione Wątki i zawiera zakres, liczbę Wątków oraz link/uzasadnienie pozycji.
 - **FR-4:** System zwraca Podsumowanie Wątku z maksymalnie trzema zdaniami, priorytetem `wysoki`/`średni`/`niski`, konkretnymi działaniami lub jawnym ich brakiem oraz linkiem do źródła.
@@ -72,7 +72,7 @@ FR-10: Epic 2 — minimalna retencja, automatyczne czyszczenie i ręczne usuwani
 
 ### Epic 1: Bezpieczne połączenie i kontrola skrzynki
 
-Użytkownik łączy jedno konto Gmail, definiuje Aktywny Filtr Gmail i lokalnie konfiguruje dostawców AI, zachowując kontrolę nad zakresem danych.
+Użytkownik łączy jedno aktywne konto Gmail naraz, definiuje Aktywny Filtr Gmail odseparowany per konto i lokalnie konfiguruje dostawców AI, zachowując kontrolę nad zakresem danych.
 
 **FRs covered:** FR-1, FR-2, FR-9
 
@@ -90,7 +90,7 @@ Użytkownik pobiera Digest, uruchamia potwierdzoną analizę ad hoc przez MCP or
 
 ## Epic 1: Bezpieczne połączenie i kontrola skrzynki
 
-Użytkownik łączy jedno konto Gmail, definiuje Aktywny Filtr Gmail i lokalnie konfiguruje dostawców AI, zachowując kontrolę nad zakresem danych.
+Użytkownik łączy jedno aktywne konto Gmail naraz, definiuje Aktywny Filtr Gmail odseparowany per konto i lokalnie konfiguruje dostawców AI, zachowując kontrolę nad zakresem danych.
 
 ### Story 1.1: Przygotowanie lokalnego projektu i bezpiecznej konfiguracji
 

@@ -7,7 +7,7 @@ paradigm: 'Hexagonal (Ports-and-Adapters)'
 scope: 'Lokalne MVP usługi MCP do podsumowań Gmaila dla jednego użytkownika'
 status: final
 created: '2026-07-27'
-updated: '2026-07-27'
+updated: '2026-07-28'
 binds: []
 sources:
   - '../../prds/prd-under_34@o2.pl-2026-07-27/prd.md'
@@ -58,7 +58,7 @@ flowchart LR
 
 - **Binds:** FR-1, FR-10, NFR-1, NFR-5
 - **Prevents:** secrets or mail bodies entering SQLite, logs or Git.
-- **Rule:** AI keys come only from process environment or local `.env`; OAuth token, SQLite database and digests live in the user-only application-data directory. `credentials.json`, `.env`, token files and application data are Git-ignored. Logs contain IDs, status and technical error metadata only.
+- **Rule:** AI keys come only from process environment or local `.env`; OAuth token, SQLite database, digests and filter configuration live in the user-only application-data directory. Local state is namespaced by a stable account fingerprint; one account is active at a time and profiles do not share filters or results. `credentials.json`, `.env`, token files and application data are Git-ignored.
 
 ### AD-5 — Gmail read and filter enforcement
 

@@ -2,32 +2,32 @@
 title: "PRD: Usługa MCP dla Gmaila"
 status: final
 created: 2026-07-27
-updated: 2026-07-27
+updated: 2026-07-28
 ---
 
 # PRD: Usługa MCP dla Gmaila
 
 ## 0. Cel dokumentu
 
-Ten PRD definiuje hobbystyczny demonstrator dla właściciela jednego konta Gmail. Jest przeznaczony dla osoby implementującej kolejne artefakty BMad: architekturę, epiki i historie. Opiera się na [briefie produktu](../../briefs/brief-under_34@o2.pl-2026-07-27/brief.md); opisuje zachowanie i granice produktu, a nie wybór frameworka, transportu MCP ani modelu bazy danych.
+Ten PRD definiuje hobbystyczny demonstrator dla właściciela prywatnych kont Gmail. Lokalna instalacja obsługuje jedno aktywne konto naraz i zachowuje odseparowaną konfigurację per konto. Jest przeznaczony dla osoby implementującej kolejne artefakty BMad: architekturę, epiki i historie.
 
 ## 1. Wizja
 
 Usługa MCP dla Gmaila ma skrócić poranne rozpoznanie skrzynki: z nowych, istotnych wątków tworzy digest z priorytetami i działaniami, a następnie pozwala dopytać o wybrany zakres przez klienta MCP. Jednocześnie projekt jest demonstratorem portfolio pokazującym integrację OAuth 2.0 i Gmail API, serwera MCP oraz zewnętrznych modeli GenAI.
 
-Demonstracja „Poranna odprawa z Gmaila przez MCP” obejmuje połączenie jednego konta przez OAuth, jawne ograniczenie zakresu wiadomości, utworzenie digestu oraz zapytanie MCP o istotne wątki. Dla świadomie wybranego wątku użytkownik może porównać wynik OpenAI i Claude. System nie zmienia wiadomości ani nie wysyła danych do drugiego dostawcy bez wyraźnego polecenia.
+Demonstracja „Poranna odprawa z Gmaila przez MCP” obejmuje połączenie jednego aktywnego konta przez OAuth, jawne ograniczenie zakresu wiadomości, utworzenie digestu oraz zapytanie MCP o istotne wątki. Profile lokalnych kont są odseparowane. Dla świadomie wybranego wątku użytkownik może porównać wynik OpenAI i Claude.
 
 ## 2. Użytkownik
 
 ### 2.1 Zadania użytkownika
 
-- Jako właściciel jednego konta Gmail chcę rano zobaczyć najważniejsze nowe wątki i działania, aby szybciej rozpocząć pracę.
+- Jako właściciel prywatnych kont Gmail chcę rano zobaczyć najważniejsze nowe wątki i działania aktywnego konta, aby szybciej rozpocząć pracę.
 - Jako osoba budująca portfolio chcę pokazać działający przepływ Gmail OAuth → MCP → GenAI → ustrukturyzowany wynik, aby wiarygodnie zademonstrować praktyczne kompetencje.
 - Jako osoba dbająca o prywatność chcę samodzielnie ograniczyć zakres wiadomości i dostawcę AI, aby zachować kontrolę nad danymi.
 
 ### 2.2 Poza grupą użytkowników v1
 
-- Wiele kont, wielu użytkowników i publiczna usługa SaaS.
+- Wielu użytkowników, publiczna usługa SaaS oraz równoległe przetwarzanie wielu kont.
 - Osoby oczekujące automatycznego wysyłania odpowiedzi, archiwizacji lub innych zmian w Gmailu.
 
 ### 2.3 Kluczowe scenariusze
@@ -38,10 +38,10 @@ Demonstracja „Poranna odprawa z Gmaila przez MCP” obejmuje połączenie jedn
 
 ## 3. Słownik
 
-- **Konto Gmail** — pojedyncze konto Google połączone lokalnie przez OAuth wyłącznie do odczytu.
+- **Konto Gmail** — konto Google połączone lokalnie przez OAuth wyłącznie do odczytu; instalacja ma jedno aktywne konto naraz.
 - **Wątek** — rozmowa Gmail prezentowana jako jedna pozycja analizy, nawet gdy zawiera wiele wiadomości.
 - **Filtr Gmail** — jawne kryterium określające, które Wątki mogą zostać pobrane; może zawierać nadawcę, etykietę lub słowa kluczowe.
-- **Aktywny Filtr Gmail** — ostatni Filtr Gmail zapisany lokalnie; ogranicza Harmonogram i `compare_summaries`.
+- **Aktywny Filtr Gmail** — ostatni Filtr Gmail zapisany lokalnie dla danego Konta Gmail; ogranicza Harmonogram i `compare_summaries` aktywnego konta.
 - **Digest** — zapisany lokalnie wynik porannej analizy obejmujący Wątki z określonego zakresu czasu.
 - **Podsumowanie Wątku** — ustrukturyzowany wynik dla Wątku: streszczenie, priorytet i działania.
 - **Dostawca AI** — zewnętrzny dostawca analizy: OpenAI jest domyślny, a użytkownik może lokalnie wybrać OpenAI albo Claude dla Digestu i `summarize_gmail`; `compare_summaries` używa obu dostawców.
@@ -52,11 +52,11 @@ Demonstracja „Poranna odprawa z Gmaila przez MCP” obejmuje połączenie jedn
 
 ### 4.1 Połączenie Konta Gmail i kontrola zakresu
 
-**Opis:** Użytkownik łączy jedno Konto Gmail przez OAuth 2.0 z zakresem tylko do odczytu. Przed analizą definiuje Filtr Gmail; domyślna konfiguracja obejmuje Inbox bez kategorii Promotions i Social. Funkcja realizuje UJ-1 i UJ-2.
+**Opis:** Użytkownik łączy Konto Gmail przez OAuth 2.0 z zakresem tylko do odczytu. Instalacja ma jedno aktywne konto naraz, a filtr i wyniki każdego profilu są lokalnie odseparowane. Przed analizą definiuje Filtr Gmail; domyślna konfiguracja obejmuje Inbox bez kategorii Promotions i Social.
 
 #### FR-1: Autoryzacja tylko do odczytu
 
-Użytkownik może połączyć jedno Konto Gmail przez ekran zgody OAuth, bez podawania hasła aplikacji.
+Użytkownik może połączyć Konto Gmail przez ekran zgody OAuth, bez podawania hasła aplikacji.
 
 **Konsekwencje testowalne:**
 - System żąda wyłącznie zakresu `gmail.readonly`.
@@ -169,7 +169,7 @@ System zapisuje lokalnie tylko identyfikatory Gmaila, hashe, metadane i Podsumow
 
 ## 6. Cele negatywne
 
-- Produkt v1 nie jest publiczną usługą ani narzędziem dla wielu kont.
+- Produkt v1 nie jest publiczną usługą, narzędziem dla wielu użytkowników ani systemem równoległego przetwarzania wielu kont.
 - Produkt v1 nie zapisuje, nie wysyła, nie usuwa, nie archiwizuje ani nie oznacza wiadomości Gmail.
 - Produkt v1 nie przetwarza załączników i nie przechowuje pełnych treści Wątków.
 - Produkt v1 nie automatyzuje odpowiedzi, wydobywania terminów ani wyboru Dostawcy AI.
@@ -178,7 +178,7 @@ System zapisuje lokalnie tylko identyfikatory Gmaila, hashe, metadane i Podsumow
 
 ### 7.1 W zakresie
 
-- Lokalne OAuth i jedno Konto Gmail z `gmail.readonly`.
+- Lokalne OAuth dla wielu prywatnych profili Gmail z `gmail.readonly`, z jednym aktywnym kontem naraz oraz odseparowanymi filtrami i wynikami.
 - Konfigurowalny Filtr Gmail, poranny Harmonogram i lokalny Digest.
 - Podsumowania Wątków z priorytetem i działaniami.
 - Trzy narzędzia MCP: `get_daily_digest`, `summarize_gmail`, `compare_summaries`.
@@ -189,7 +189,7 @@ System zapisuje lokalnie tylko identyfikatory Gmaila, hashe, metadane i Podsumow
 
 - Hosting zdalny i działanie niezależne od lokalnego komputera — odroczone po walidacji MVP.
 - Wysyłanie Digestu e-mailem — odroczone, aby uniknąć pętli i dodatkowego zakresu integracji.
-- Wielu użytkowników, wiele kont i integracje organizacyjne — odroczone z powodu OAuth, prywatności i bezpieczeństwa.
+- Wielu użytkowników, konta współdzielone, równoległe przetwarzanie wielu kont i integracje organizacyjne — odroczone z powodu OAuth, prywatności i bezpieczeństwa.
 
 ## 8. Metryki sukcesu
 

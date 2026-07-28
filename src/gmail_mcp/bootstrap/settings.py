@@ -36,6 +36,13 @@ class GmailSettings:
     paths: AppPaths
 
 
+@dataclass(frozen=True)
+class ProviderStatus:
+    selected: ProviderName
+    openai_available: bool
+    claude_available: bool
+
+
 def load_settings(
     *,
     environ: Mapping[str, str] | None = None,
@@ -73,6 +80,15 @@ def load_gmail_settings(
         data_dir=data_dir,
         require_credentials=require_credentials,
     )
+
+
+def load_provider_status(
+    *, environ: Mapping[str, str] | None = None, env_file: Path | None = None
+) -> ProviderStatus:
+    values = _load_values(environ=environ, env_file=env_file)
+    provider = _load_provider(values)
+    return ProviderStatus(provider, bool(values.get("OPENAI_API_KEY", "").strip()),
+                          bool(values.get("ANTHROPIC_API_KEY", "").strip()))
 
 
 def _load_values(
@@ -122,7 +138,7 @@ def _inside_project_checkout(path: Path) -> bool:
 
 
 def _load_provider(values: Mapping[str, str]) -> ProviderName:
-    provider = values.get("AI_PROVIDER", "openai").lower()
+    provider = values.get("AI_PROVIDER", "openai").strip().lower()
     if provider not in {"openai", "claude"}:
         raise ConfigurationError("AI_PROVIDER must be either 'openai' or 'claude'.")
     return provider
@@ -135,7 +151,7 @@ def _validate_selected_provider(
 ) -> None:
     required_variable = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
     selected_key = openai_api_key if provider == "openai" else anthropic_api_key
-    if not selected_key:
+    if not selected_key or not selected_key.strip():
         raise ConfigurationError(
             f"{required_variable} is required for the selected AI_PROVIDER. "
             "Add it to the process environment or local .env file."

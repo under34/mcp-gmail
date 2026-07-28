@@ -18,6 +18,7 @@ class AppPaths:
     oauth_token: Path
     sqlite: Path
     digests: Path
+    filters: Path
 
 
 def get_app_paths(data_dir: Path | None = None) -> AppPaths:
@@ -27,8 +28,9 @@ def get_app_paths(data_dir: Path | None = None) -> AppPaths:
     oauth_dir = root / "oauth"
     database_dir = root / "database"
     digests_dir = root / "digests"
+    filters_dir = root / "filters"
 
-    for directory in (root, oauth_dir, database_dir, digests_dir):
+    for directory in (root, oauth_dir, database_dir, digests_dir, filters_dir):
         _create_private_directory(directory)
 
     return AppPaths(
@@ -36,6 +38,7 @@ def get_app_paths(data_dir: Path | None = None) -> AppPaths:
         oauth_token=oauth_dir / "token.json",
         sqlite=database_dir / "gmail-mcp.sqlite3",
         digests=digests_dir,
+        filters=filters_dir,
     )
 
 
