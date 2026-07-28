@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -10,6 +12,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from gmail_mcp.application.analysis_state import GmailCandidateError
+from gmail_mcp.domain.analysis_state import ThreadCandidate
 from gmail_mcp.domain.gmail_connection import ConnectionResult
 
 GMAIL_SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
@@ -120,8 +124,67 @@ class GmailOAuthAdapter:
     def current_account_email(self) -> str:
         result = self.require_connection()
         if result.status != "complete" or not result.email_address:
-            raise ValueError("Gmail authorization is unavailable.")
+            raise GmailCandidateError("Gmail authorization is unavailable.")
         return result.email_address
+
+    def find_thread_candidates(
+        self, account_fingerprint: str, query: str, filter_hash: str
+    ) -> list[ThreadCandidate]:
+        connection = self.require_connection()
+        if connection.status != "complete":
+            raise GmailCandidateError("Gmail authorization is unavailable.")
+        if not connection.email_address or hashlib.sha256(
+            connection.email_address.strip().lower().encode()
+        ).hexdigest() != account_fingerprint:
+            raise GmailCandidateError("Gmail account changed during candidate discovery.")
+        credentials = self._load_credentials()
+        if credentials is None:
+            raise GmailCandidateError("Gmail authorization is unavailable.")
+        service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
+        candidates: list[ThreadCandidate] = []
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            request = service.users().threads().list(userId="me", q=query, pageToken=page_token)
+            try:
+                response = request.execute()
+            except HttpError as error:
+                raise GmailCandidateError("Gmail candidate discovery failed.") from error
+            for thread in response.get("threads", []):
+                thread_id = str(thread["id"])
+                try:
+                    metadata = service.users().threads().get(
+                        userId="me", id=thread_id, format="metadata"
+                    ).execute()
+                except HttpError as error:
+                    if getattr(error.resp, "status", None) == 404:
+                        continue
+                    raise GmailCandidateError("Gmail candidate discovery failed.") from error
+                messages = metadata.get("messages", [])
+                if messages:
+                    candidates.append(
+                        ThreadCandidate(
+                            account_fingerprint,
+                            thread_id,
+                            str(messages[-1]["id"]),
+                            self._message_time(messages[-1]),
+                            filter_hash,
+                        )
+                    )
+            next_token = response.get("nextPageToken")
+            if not next_token:
+                return candidates
+            if next_token in seen_tokens:
+                raise GmailCandidateError("Gmail candidate discovery failed.")
+            seen_tokens.add(next_token)
+            page_token = str(next_token)
+
+    @staticmethod
+    def _message_time(message: dict[str, object]) -> str:
+        try:
+            return datetime.fromtimestamp(int(str(message["internalDate"])) / 1000, UTC).isoformat()
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            raise GmailCandidateError("Gmail candidate discovery failed.") from error
 
     def _write_token(self, credentials: Credentials) -> None:
         if self._token_path.is_symlink():

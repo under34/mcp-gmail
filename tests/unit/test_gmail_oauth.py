@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -304,3 +305,55 @@ def test_preview_threads_rejects_repeated_page_token(tmp_path: Path, monkeypatch
 
     with pytest.raises(ValueError, match="pagination"):
         adapter.preview_threads("in:inbox")
+
+
+def test_find_thread_candidates_uses_thread_metadata_not_message_bodies(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = GmailOAuthAdapter(None, tmp_path / "token.json")
+    monkeypatch.setattr(
+        adapter, "require_connection", lambda: ConnectionResult.complete("owner@example.com")
+    )
+    monkeypatch.setattr(adapter, "_load_credentials", lambda: object())
+    captured: dict[str, object] = {}
+
+    class Request:
+        def __init__(self, response: dict[str, object]) -> None:
+            self._response = response
+
+        def execute(self) -> dict[str, object]:
+            return self._response
+
+    class Threads:
+        def list(self, **kwargs: object) -> Request:
+            captured["query"] = kwargs["q"]
+            return Request({"threads": [{"id": "thread-1"}]})
+
+        def get(self, **kwargs: object) -> Request:
+            assert kwargs == {"userId": "me", "id": "thread-1", "format": "metadata"}
+            return Request(
+                {
+                    "messages": [
+                        {"id": "old", "internalDate": "0"},
+                        {"id": "latest", "internalDate": "1722124800000"},
+                    ]
+                }
+            )
+
+    class Users:
+        def threads(self) -> Threads:
+            return Threads()
+
+    class Service:
+        def users(self) -> Users:
+            return Users()
+
+    monkeypatch.setattr(gmail_oauth, "build", lambda *args, **kwargs: Service())
+
+    account = hashlib.sha256(b"owner@example.com").hexdigest()
+    candidates = adapter.find_thread_candidates(account, "label:work", "filter-hash")
+
+    assert captured["query"] == "label:work"
+    assert [(item.thread_id, item.latest_message_id) for item in candidates] == [
+        ("thread-1", "latest")
+    ]
