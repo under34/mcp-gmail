@@ -9,13 +9,13 @@ updated: 2026-07-27
 
 ## Podsumowanie
 
-Lokalna usługa MCP dla jednego konta Gmail automatyzuje poranną odprawę z nowych, istotnych wiadomości. Pobiera tylko wiadomości zgodne z konfigurowalnymi filtrami, tworzy ich zwięzłe podsumowania z priorytetem i działaniami, a wyniki udostępnia przez narzędzia MCP. Użytkownik może również ręcznie pytać klienta MCP o podsumowania ad hoc.
+Lokalna usługa MCP dla prywatnych kont Gmail automatyzuje poranną odprawę z nowych, istotnych wiadomości. Jedno konto jest aktywne naraz, a jego filtr i lokalne wyniki są odseparowane od pozostałych kont. Usługa pobiera tylko wiadomości zgodne z konfigurowalnymi filtrami, tworzy ich zwięzłe podsumowania z priorytetem i działaniami, a wyniki udostępnia przez narzędzia MCP.
 
 MVP działa lokalnie, przetwarza tylko nowe lub zmienione maile i nie utrwala ich pełnej treści. OpenAI API jest domyślnym dostawcą AI, a Anthropic Claude API — ręcznie wybieraną alternatywą porównawczą.
 
 ## Użytkownik i wartość
 
-Pierwszym użytkownikiem jest właściciel jednego konta Gmail, który chce szybko wiedzieć, które nowe wiadomości są ważne i co z nich wynika. Sukces MVP oznacza, że poranny digest wiarygodnie przedstawia najważniejsze nowe maile oraz wynikające z nich działania.
+Pierwszym użytkownikiem jest właściciel prywatnych kont Gmail, który chce szybko wiedzieć, które nowe wiadomości są ważne i co z nich wynika. Sukces MVP oznacza, że poranny digest wiarygodnie przedstawia najważniejsze nowe maile oraz wynikające z nich działania dla aktywnego konta.
 
 ## Problem
 
@@ -40,10 +40,11 @@ Usługa łączy Gmail API, zewnętrzny model AI i MCP. Jej kluczowe możliwości
 - Narzędzia MCP do pobierania digestu i podsumowań ad hoc.
 - OpenAI jako domyślny dostawca oraz Claude API jako ręczna alternatywa.
 - Lokalne przechowywanie wyłącznie identyfikatorów Gmaila, hashy, metadanych i podsumowań.
+- Wiele lokalnych profili kont, z jednym aktywnym kontem naraz i odseparowanymi filtrami oraz wynikami.
 
 ## Poza zakresem MVP
 
-- Obsługa wielu kont lub publiczna usługa wieloużytkownikowa.
+- Publiczna usługa wieloużytkownikowa, współdzielone konta lub równoległe przetwarzanie wielu kont.
 - Wysyłanie digestów e-mailem.
 - Zapisywanie pełnej treści lub załączników wiadomości.
 - Automatyczne wysyłanie odpowiedzi, oznaczanie, archiwizacja lub inne modyfikowanie wiadomości.

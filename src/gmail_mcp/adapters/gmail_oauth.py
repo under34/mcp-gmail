@@ -94,6 +94,35 @@ class GmailOAuthAdapter:
         service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
         return str(service.users().getProfile(userId="me").execute()["emailAddress"])
 
+    def preview_threads(self, query: str) -> tuple[str, int]:
+        connection = self.require_connection()
+        if connection.status != "complete":
+            raise ValueError("Gmail authorization is unavailable.")
+        credentials = self._load_credentials()
+        if credentials is None:
+            raise ValueError("Gmail authorization is unavailable.")
+        service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
+        count = 0
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            request = service.users().threads().list(userId="me", q=query, pageToken=page_token)
+            response = request.execute()
+            count += len(response.get("threads", []))
+            next_token = response.get("nextPageToken")
+            if not next_token:
+                return connection.email_address or self._profile_email(credentials), count
+            if next_token in seen_tokens:
+                raise ValueError("Gmail pagination failed.")
+            seen_tokens.add(next_token)
+            page_token = str(next_token)
+
+    def current_account_email(self) -> str:
+        result = self.require_connection()
+        if result.status != "complete" or not result.email_address:
+            raise ValueError("Gmail authorization is unavailable.")
+        return result.email_address
+
     def _write_token(self, credentials: Credentials) -> None:
         if self._token_path.is_symlink():
             raise ValueError("Token path is unsafe.")

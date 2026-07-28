@@ -11,7 +11,7 @@ from gmail_mcp.application.gmail_connection import (
 )
 from gmail_mcp.bootstrap import cli
 from gmail_mcp.bootstrap.paths import get_app_paths
-from gmail_mcp.bootstrap.settings import GmailSettings
+from gmail_mcp.bootstrap.settings import GmailSettings, ProviderStatus
 from gmail_mcp.domain.gmail_connection import ConnectionResult
 
 
@@ -83,3 +83,54 @@ def test_disconnect_cli_does_not_require_credentials_file(
 
     assert exit_code == 0
     assert capsys.readouterr().out == "complete\n"
+
+
+def test_ai_provider_status_reports_selected_provider(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "load_provider_status", lambda: ProviderStatus("openai", True, False))
+    monkeypatch.setattr(sys, "argv", ["gmail-mcp", "ai-provider-status"])
+
+    assert cli.main() == 0
+    assert "selected=openai" in capsys.readouterr().out
+
+
+def test_filter_status_uses_account_identity_without_previewing_threads(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    paths = get_app_paths(tmp_path / "data")
+    monkeypatch.setattr(
+        cli,
+        "load_gmail_settings",
+        lambda **kwargs: GmailSettings(credentials_path=None, paths=paths),
+    )
+    monkeypatch.setattr(
+        cli.GmailOAuthAdapter, "current_account_email", lambda self: "owner@example.com"
+    )
+    monkeypatch.setattr(
+        cli.GmailOAuthAdapter,
+        "preview_threads",
+        lambda self, query: (_ for _ in ()).throw(AssertionError("must not list threads")),
+    )
+    monkeypatch.setattr(sys, "argv", ["gmail-mcp", "gmail-filter-status"])
+
+    assert cli.main() == 0
+    assert "in:inbox" in capsys.readouterr().out
+
+
+def test_set_filter_cli_requires_confirm_without_gmail_access(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    paths = get_app_paths(tmp_path / "data")
+    monkeypatch.setattr(
+        cli,
+        "load_gmail_settings",
+        lambda **kwargs: GmailSettings(credentials_path=None, paths=paths),
+    )
+    monkeypatch.setattr(
+        cli.GmailOAuthAdapter,
+        "preview_threads",
+        lambda self, query: (_ for _ in ()).throw(AssertionError("must not access Gmail")),
+    )
+    monkeypatch.setattr(sys, "argv", ["gmail-mcp", "set-gmail-filter", "--query", "in:inbox"])
+
+    assert cli.main() == 1
+    assert "--confirm" in capsys.readouterr().out

@@ -23,7 +23,7 @@
 #   - done: Story completed
 
 generated: 2026-07-27
-last_updated: 2026-07-27
+last_updated: 2026-07-28
 project: Usługa MCP dla Gmaila
 project_key: mcp-gmail
 tracking_system: file-system
@@ -33,7 +33,7 @@ development_status:
   epic-1: in-progress
   1-1-przygotowanie-lokalnego-projektu-i-bezpiecznej-konfiguracji: done
   1-2-polaczenie-i-odlaczenie-konta-gmail-przez-oauth: done
-  1-3-zarzadzanie-aktywnym-filtrem-gmail-i-dostawcami-ai: backlog
+  1-3-zarzadzanie-aktywnym-filtrem-gmail-i-dostawcami-ai: done
   epic-1-retrospective: optional
 
   epic-2: backlog

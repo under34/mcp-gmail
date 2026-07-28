@@ -8,7 +8,12 @@ import pytest
 
 from gmail_mcp.bootstrap.logging import SecretRedactingFilter
 from gmail_mcp.bootstrap.paths import get_app_paths, restrict_file_permissions
-from gmail_mcp.bootstrap.settings import ConfigurationError, load_gmail_settings, load_settings
+from gmail_mcp.bootstrap.settings import (
+    ConfigurationError,
+    load_gmail_settings,
+    load_provider_status,
+    load_settings,
+)
 
 
 def test_load_settings_uses_environment_and_defaults_to_openai(tmp_path: Path) -> None:
@@ -69,6 +74,15 @@ def test_missing_selected_provider_key_is_safe(tmp_path: Path) -> None:
 
     assert "OPENAI_API_KEY" in str(exc_info.value)
     assert secret not in str(exc_info.value)
+
+
+def test_whitespace_selected_provider_key_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
+        load_settings(
+            environ={"OPENAI_API_KEY": "   "},
+            env_file=tmp_path / "missing.env",
+            data_dir=tmp_path / "data",
+        )
 
 
 def test_invalid_provider_is_rejected(tmp_path: Path) -> None:
@@ -214,3 +228,14 @@ def test_disconnect_configuration_does_not_require_credentials(tmp_path: Path) -
     )
 
     assert settings.credentials_path is None
+
+
+def test_provider_status_normalizes_selection_and_ignores_whitespace_keys(tmp_path: Path) -> None:
+    status = load_provider_status(
+        environ={"AI_PROVIDER": " CLAUDE ", "OPENAI_API_KEY": "key", "ANTHROPIC_API_KEY": "  "},
+        env_file=tmp_path / "missing.env",
+    )
+
+    assert status.selected == "claude"
+    assert status.openai_available is True
+    assert status.claude_available is False

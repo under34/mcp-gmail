@@ -4,13 +4,13 @@ Lokalna, rozwijana w Pythonie usługa MCP do prywatnej pracy z Gmailem. Projekt
 portfolio pokazuje integrację OAuth 2.0, architekturę heksagonalną i bezpieczne
 przygotowanie pod analizę GenAI (OpenAI lub Claude).
 
-> Aktualny etap: gotowy lokalny OAuth Gmail z dostępem tylko do odczytu. Serwer
+> Aktualny etap: gotowy lokalny OAuth Gmail oraz zarządzanie aktywnym filtrem z dostępem tylko do odczytu. Serwer
 > MCP, pobieranie wiadomości, podsumowania AI i harmonogram są kolejnymi etapami
 > MVP — nie są jeszcze dostępne.
 
 ## Co działa
 
-- Lokalny flow OAuth 2.0 dla jednego konta Gmail, uruchamiany w przeglądarce.
+- Lokalny flow OAuth 2.0 dla jednego aktywnego konta Gmail naraz, uruchamiany w przeglądarce; docelowo lokalne filtry są odseparowane per konto.
 - Wyłącznie scope `https://www.googleapis.com/auth/gmail.readonly`.
 - Polecenia do połączenia, sprawdzenia statusu i lokalnego odłączenia konta.
 - Token OAuth poza repozytorium, w prywatnym katalogu danych użytkownika.
@@ -69,6 +69,16 @@ uv run gmail-mcp gmail-status
 
 # Usuwa wyłącznie lokalny token OAuth. Nie cofa dostępu w Google i nie zmienia maili.
 uv run gmail-mcp disconnect-gmail
+
+# Pokazuje liczbę wątków przed zapisem filtra.
+uv run gmail-mcp preview-gmail-filter --query 'from:boss@example.com'
+
+# Ponownie sprawdza i zapisuje filtr wyłącznie po jawnym potwierdzeniu.
+uv run gmail-mcp set-gmail-filter --query 'label:work' --confirm
+
+# Pokazuje filtr aktywny dla bieżącego konta i stan lokalnego dostawcy AI.
+uv run gmail-mcp gmail-filter-status
+uv run gmail-mcp ai-provider-status
 ```
 
 Po poprawnym połączeniu pierwsze polecenie wyświetli adres połączonego konta.
