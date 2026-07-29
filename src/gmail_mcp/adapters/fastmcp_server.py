@@ -12,10 +12,17 @@ class SummarizeGmailPort(Protocol):
     def execute(self, confirmation_token: str | None) -> dict[str, object]: ...
 
 
+class CompareSummariesPort(Protocol):
+    def preview(self, thread_id: str | None) -> dict[str, object]: ...
+    def confirm(self, preview_token: str) -> dict[str, object]: ...
+    def execute(self, confirmation_token: str | None) -> dict[str, object]: ...
+
+
 def create_server(
     get_digest: Callable[[str], dict[str, object]],
     account_fingerprint: Callable[[], str],
     summarize: SummarizeGmailPort | None = None,
+    compare: CompareSummariesPort | None = None,
 ) -> FastMCP:
     server = FastMCP("Gmail MCP", json_response=True)
 
@@ -60,11 +67,30 @@ def create_server(
         return _failed("Invalid confirmation request.", "Refresh the preview and confirm it again.")
 
     @server.tool()
-    def compare_summaries() -> dict[str, object]:
-        """Reserved for the confirmed provider comparison workflow."""
-        return _failed(
-            "Summary comparison is not available yet.", "Use a later version of this tool."
-        )
+    def compare_summaries(
+        thread_id: str | None = None,
+        preview_token: str | None = None,
+        confirm: bool = False,
+        confirmation_token: str | None = None,
+    ) -> dict[str, object]:
+        """Preview, confirm, then compare OpenAI and Claude for one filtered thread."""
+        if compare is None:
+            return _failed("Summary comparison is not available yet.", "Configure both providers.")
+        try:
+            if confirmation_token is not None and not confirmation_token:
+                return _failed(
+                    "A valid confirmation token is required.",
+                    "Refresh the preview and confirm it again.",
+                )
+            if confirmation_token is not None and not any((thread_id, preview_token, confirm)):
+                return compare.execute(confirmation_token)
+            if preview_token and confirm and not any((thread_id, confirmation_token)):
+                return compare.confirm(preview_token)
+            if not any((preview_token, confirmation_token, confirm)):
+                return compare.preview(thread_id)
+        except Exception:
+            return _failed("Summary comparison is unavailable.", "Refresh the preview and retry.")
+        return _failed("Invalid comparison request.", "Refresh the preview and confirm it again.")
 
     return server
 
