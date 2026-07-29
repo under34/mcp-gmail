@@ -8,6 +8,7 @@ from pathlib import Path
 from gmail_mcp.application.analysis_state import AnalysisStateError
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
 from gmail_mcp.domain.digest import Digest
+from gmail_mcp.domain.local_data import LocalDataResult
 from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
@@ -15,6 +16,7 @@ class SqliteAnalysisStateAdapter:
     """Single-writer local state; stores only thread metadata and input hashes."""
 
     _LEASE_DURATION = timedelta(minutes=15)
+    _DELETION_LEASE_DURATION = timedelta(minutes=5)
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -68,6 +70,10 @@ class SqliteAnalysisStateAdapter:
                     reanalysis INTEGER NOT NULL, reason TEXT)"""
             )
             connection.execute(
+                """CREATE TABLE IF NOT EXISTS account_deletion_gate (
+                    account TEXT PRIMARY KEY, expires_at TEXT NOT NULL)"""
+            )
+            connection.execute(
                 """CREATE TABLE IF NOT EXISTS thread_summary (
                     account TEXT NOT NULL, thread_id TEXT NOT NULL, run_id TEXT NOT NULL,
                     input_hash TEXT NOT NULL,
@@ -97,6 +103,12 @@ class SqliteAnalysisStateAdapter:
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                self._recover_expired_deletion_gates(connection)
+                if digest.account_fingerprint and connection.execute(
+                    "SELECT 1 FROM account_deletion_gate WHERE account = ?",
+                    (digest.account_fingerprint,),
+                ).fetchone() is not None:
+                    raise AnalysisStateError("Local data deletion is in progress.")
                 connection.execute(
                     "INSERT INTO digest(run_id, account, status, generated_at, covered_from, "
                     "covered_to, matching_thread_count, provider, reason, next_action) "
@@ -155,6 +167,153 @@ class SqliteAnalysisStateAdapter:
             str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], row[5],
             int(row[6]), (), row[7], row[8], row[9]
         )
+
+    def purge_expired_results(self, now: datetime) -> LocalDataResult:
+        cutoff = (now.astimezone(UTC) - timedelta(days=30)).isoformat()
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                deleted_digests = connection.execute(
+                    "SELECT COUNT(*) FROM digest WHERE julianday(generated_at) < julianday(?)",
+                    (cutoff,),
+                ).fetchone()[0]
+                connection.execute(
+                    "DELETE FROM digest_item WHERE run_id IN "
+                    "(SELECT run_id FROM digest WHERE julianday(generated_at) < julianday(?))",
+                    (cutoff,),
+                )
+                connection.execute(
+                    "DELETE FROM digest WHERE julianday(generated_at) < julianday(?)", (cutoff,)
+                )
+                deleted_summaries = connection.execute(
+                    "SELECT COUNT(*) FROM thread_summary "
+                    "WHERE julianday(created_at) < julianday(?)",
+                    (cutoff,),
+                ).fetchone()[0]
+                connection.execute(
+                    "DELETE FROM thread_summary WHERE julianday(created_at) < julianday(?)",
+                    (cutoff,),
+                )
+            return LocalDataResult("complete", int(deleted_digests), int(deleted_summaries))
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local retention is unavailable.") from error
+
+    def begin_account_deletion(self, account_fingerprint: str) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                self._recover_expired_deletion_gates(connection)
+                connection.execute(
+                    "INSERT INTO account_deletion_gate(account, expires_at) VALUES (?, ?)",
+                    (
+                        account_fingerprint,
+                        (datetime.now(UTC) + self._DELETION_LEASE_DURATION).isoformat(),
+                    ),
+                )
+                run_ids = connection.execute(
+                    "SELECT run_id FROM analysis_run WHERE account = ? AND status = 'running'",
+                    (account_fingerprint,),
+                ).fetchall()
+                connection.execute(
+                    "UPDATE analysis_run SET status = 'failed', reason = ? "
+                    "WHERE account = ? AND status = 'running'",
+                    ("Local data deletion requested.", account_fingerprint),
+                )
+                for (run_id,) in run_ids:
+                    connection.execute(
+                        "UPDATE analysis_run_candidate SET status = 'failed' WHERE run_id = ?",
+                        (run_id,),
+                    )
+                connection.execute(
+                    "DELETE FROM analysis_claim WHERE account = ?", (account_fingerprint,)
+                )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local data deletion is unavailable.") from error
+
+    def delete_account_data(self, account_fingerprint: str) -> LocalDataResult:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute(
+                    "SELECT 1 FROM account_deletion_gate WHERE account = ?", (account_fingerprint,)
+                ).fetchone() is None:
+                    raise AnalysisStateError("Local data deletion is unavailable.")
+                run_ids = "SELECT run_id FROM analysis_run WHERE account = ?"
+                deleted_digests = connection.execute(
+                    "SELECT COUNT(*) FROM digest WHERE account = ?", (account_fingerprint,)
+                ).fetchone()[0]
+                deleted_summaries = connection.execute(
+                    "SELECT COUNT(*) FROM thread_summary WHERE account = ?", (account_fingerprint,)
+                ).fetchone()[0]
+                deleted_runs = connection.execute(
+                    "SELECT COUNT(*) FROM analysis_run WHERE account = ?", (account_fingerprint,)
+                ).fetchone()[0]
+                connection.execute(
+                    f"DELETE FROM analysis_run_candidate WHERE run_id IN ({run_ids})",
+                    (account_fingerprint,),
+                )
+                connection.execute(
+                    "DELETE FROM analysis_claim WHERE account = ?", (account_fingerprint,)
+                )
+                connection.execute(
+                    "DELETE FROM thread_summary WHERE account = ?", (account_fingerprint,)
+                )
+                connection.execute(
+                    "DELETE FROM digest_item WHERE run_id IN "
+                    "(SELECT run_id FROM digest WHERE account = ?)",
+                    (account_fingerprint,),
+                )
+                connection.execute("DELETE FROM digest WHERE account = ?", (account_fingerprint,))
+                connection.execute(
+                    "DELETE FROM analysis_run WHERE account = ?", (account_fingerprint,)
+                )
+                connection.execute(
+                    "DELETE FROM thread_state WHERE account = ?", (account_fingerprint,)
+                )
+                connection.execute(
+                    "DELETE FROM filter_membership WHERE account = ?", (account_fingerprint,)
+                )
+            return LocalDataResult(
+                "complete", int(deleted_digests), int(deleted_summaries), int(deleted_runs)
+            )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local data deletion is unavailable.") from error
+
+    def end_account_deletion(self, account_fingerprint: str) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "DELETE FROM account_deletion_gate WHERE account = ?", (account_fingerprint,)
+                )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local data deletion is unavailable.") from error
+
+    def renew_account_deletion(self, account_fingerprint: str) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute(
+                    "UPDATE account_deletion_gate SET expires_at = ? WHERE account = ?",
+                    (
+                        (datetime.now(UTC) + self._DELETION_LEASE_DURATION).isoformat(),
+                        account_fingerprint,
+                    ),
+                ).rowcount != 1:
+                    raise AnalysisStateError("Local data deletion is unavailable.")
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local data deletion is unavailable.") from error
+
+    def local_account_fingerprints(self) -> tuple[str, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT account FROM analysis_run WHERE account <> '' UNION "
+                "SELECT account FROM thread_summary WHERE account <> '' UNION "
+                "SELECT account FROM digest WHERE account <> '' UNION "
+                "SELECT account FROM thread_state WHERE account <> '' UNION "
+                "SELECT account FROM filter_membership WHERE account <> ''"
+            ).fetchall()
+        return tuple(str(row[0]) for row in rows)
 
     def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
         if len(input_hash) != 64 or any(
@@ -235,6 +394,11 @@ class SqliteAnalysisStateAdapter:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 self._recover_expired_runs(connection)
+                self._recover_expired_deletion_gates(connection)
+                if connection.execute(
+                    "SELECT 1 FROM account_deletion_gate WHERE account = ?", (account_fingerprint,)
+                ).fetchone() is not None:
+                    raise AnalysisStateError("Local data deletion is in progress.")
                 self._mark_missing_memberships(
                     connection, account_fingerprint, unique, filter_hash=filter_hash
                 )
@@ -455,3 +619,10 @@ class SqliteAnalysisStateAdapter:
                 "UPDATE analysis_run_candidate SET status = 'failed' WHERE run_id = ?", (run_id,)
             )
             connection.execute("DELETE FROM analysis_claim WHERE run_id = ?", (run_id,))
+
+    @staticmethod
+    def _recover_expired_deletion_gates(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "DELETE FROM account_deletion_gate WHERE expires_at <= ?",
+            (datetime.now(UTC).isoformat(),),
+        )

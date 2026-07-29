@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from hashlib import sha256
 
 import pytest
@@ -103,6 +104,80 @@ def test_sqlite_persists_digest_metadata_without_a_thread_body(tmp_path) -> None
     assert row == ("failed", "openai", "Gmail is unavailable.", "Reconnect Gmail.")
     assert "body" not in columns
     assert state.latest_digest("account").run_id == "run"  # type: ignore[union-attr]
+
+
+def test_sqlite_retention_deletes_only_results_strictly_older_than_30_days(tmp_path) -> None:
+    database = tmp_path / "state.sqlite3"
+    state = SqliteAnalysisStateAdapter(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO digest VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "old", "account", "complete", "2026-06-28T23:59:59+00:00", None,
+                None, 0, None, None, None,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO digest_item VALUES (?, ?, ?, ?, ?)",
+            ("old", 0, "thread", "link", "new_message"),
+        )
+        connection.execute(
+            "INSERT INTO digest VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "edge", "account", "complete", "2026-06-29T00:00:00+00:00", None,
+                None, 0, None, None, None,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO thread_summary VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "account", "old", "run", "a" * 64, 1, "Krótko.", "niski", "[]",
+                "openai", "complete", None, "link", "notice", "2026-06-28T23:59:59+00:00",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO thread_summary VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "account", "edge", "run", "b" * 64, 1, "Krótko.", "niski", "[]",
+                "openai", "complete", None, "link", "notice", "2026-06-29T00:00:00+00:00",
+            ),
+        )
+
+    result = state.purge_expired_results(datetime(2026, 7, 29, tzinfo=UTC))
+
+    assert (result.deleted_digests, result.deleted_summaries) == (1, 1)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT run_id FROM digest").fetchall() == [("edge",)]
+        assert connection.execute("SELECT COUNT(*) FROM digest_item").fetchone() == (0,)
+        assert connection.execute("SELECT thread_id FROM thread_summary").fetchall() == [("edge",)]
+
+
+def test_account_deletion_blocks_planning_then_resets_local_analysis_state(tmp_path) -> None:
+    state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
+    first = state.plan("account", [_candidate()], filter_hash="filter")
+    state.begin_account_deletion("account")
+
+    with pytest.raises(AnalysisStateError, match="deletion"):
+        state.plan("account", [_candidate()], filter_hash="filter")
+
+    result = state.delete_account_data("account")
+    state.end_account_deletion("account")
+    next_run = state.plan("account", [_candidate()], filter_hash="filter")
+
+    assert result.deleted_runs == 1
+    assert len(next_run.candidates) == 1
+    with pytest.raises(AnalysisStateError, match="does not exist"):
+        state.finish(first, "complete")
+
+
+def test_account_deletion_rejects_a_stale_digest_save(tmp_path) -> None:
+    state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
+    state.begin_account_deletion("account")
+
+    with pytest.raises(AnalysisStateError, match="deletion"):
+        state.save_digest(Digest("run", "account", "complete", "now", None, None, 0, ()))
+
+    state.end_account_deletion("account")
 
 
 def test_sqlite_rejects_a_summary_after_its_run_is_finished(tmp_path) -> None:

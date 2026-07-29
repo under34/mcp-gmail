@@ -40,7 +40,7 @@ development_status:
   2-1-lokalny-stan-analizy-i-deduplikacja-watkow: done
   2-2-walidowane-podsumowanie-watku-przez-wybranego-dostawce-ai: done
   2-3-poranny-digest-przez-lokalny-harmonogram: done
-  2-4-retencja-i-reczne-usuwanie-lokalnych-danych: backlog
+  2-4-retencja-i-reczne-usuwanie-lokalnych-danych: done
   epic-2-retrospective: optional
 
   epic-3: backlog
