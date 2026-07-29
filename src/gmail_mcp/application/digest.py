@@ -13,6 +13,8 @@ class DigestRepositoryPort(Protocol):
 
     def summaries_for_run(self, run_id: str) -> tuple[ThreadSummary, ...]: ...
 
+    def inclusion_reasons_for_run(self, run_id: str) -> dict[str, str]: ...
+
 
 class DigestRunnerPort(Protocol):
     def execute(self) -> AnalysisRun: ...
@@ -44,9 +46,11 @@ class RunDailyDigest:
             run = AnalysisRun.failed("", "Daily digest could not be completed.")
         try:
             summaries = self._digests.summaries_for_run(run.run_id)
+            reasons = self._digests.inclusion_reasons_for_run(run.run_id)
         except Exception:
             run = AnalysisRun.failed(run.account_fingerprint, "Digest summaries are unavailable.")
             summaries = ()
+            reasons = {}
         action = "Retry later."
         digest = Digest(
             run_id=run.run_id,
@@ -56,7 +60,10 @@ class RunDailyDigest:
             covered_from=run.covered_from,
             covered_to=run.covered_to,
             matching_thread_count=len(run.candidates),
-            items=tuple(DigestItem(summary, "new_message") for summary in summaries),
+            items=tuple(
+                DigestItem(summary, reasons.get(summary.thread_id, "new_message"))
+                for summary in summaries
+            ),
             provider=self._provider,
             reason=run.reason,
             next_action=None if run.status == "complete" else action,

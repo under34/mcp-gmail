@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from gmail_mcp.application.digest import RunDailyDigest
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
 from gmail_mcp.domain.digest import Digest
+from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
 @dataclass
@@ -19,11 +20,15 @@ class FakeRunner:
 class FakeDigests:
     saved: Digest | None = None
 
+
     def save_digest(self, digest: Digest) -> None:
         self.saved = digest
 
     def summaries_for_run(self, run_id: str):
         return ()
+
+    def inclusion_reasons_for_run(self, run_id: str) -> dict[str, str]:
+        return {}
 
 
 @dataclass
@@ -75,3 +80,24 @@ def test_daily_digest_keeps_the_provider_snapshot_for_a_partial_run() -> None:
 
     assert result.status == "partial"
     assert result.provider == "claude"
+
+
+def test_daily_digest_preserves_the_planned_inclusion_reason() -> None:
+    summary = ThreadSummary("account", "thread", "Krótko.", "niski", (), "openai")
+
+    @dataclass
+    class DigestRepository(FakeDigests):
+        def summaries_for_run(self, run_id: str):
+            return (summary,)
+
+        def inclusion_reasons_for_run(self, run_id: str) -> dict[str, str]:
+            return {"thread": "reanalysis"}
+
+    repository = DigestRepository()
+    run = AnalysisRun.create(
+        "account", [ThreadCandidate("account", "thread", "message", "now", "filter")]
+    )
+
+    result = RunDailyDigest(FakeRunner(run), FakeSummaries(), repository, "openai").execute()
+
+    assert result.items[0].inclusion_reason == "reanalysis"

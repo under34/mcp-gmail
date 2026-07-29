@@ -1,6 +1,6 @@
 ---
 title: 'Story 2.3: Poranny Digest przez lokalny Harmonogram'
-status: review
+status: done
 baseline_commit: 7ae1816e88e2633f6421841c7b7e466ab36107a9
 created: 2026-07-29
 ---
@@ -82,10 +82,10 @@ so that rozpoczynam dzień od najważniejszych nowych Wątków i działań.
 
 ### Review Findings
 
-- [ ] [Review][Patch] Trwale wyprowadzaj i zapisuj rzeczywisty powód uwzględnienia pozycji Digestu [src/gmail_mcp/application/digest.py:55]
-- [ ] [Review][Patch] Egzekwuj lub generuj konfigurację czasu i strefy harmonogramu zamiast ignorować ją w CLI [src/gmail_mcp/bootstrap/cli.py:41]
-- [ ] [Review][Patch] Pozostaw ręczne uruchomienie Digestu dostępne po wyłączeniu harmonogramu [src/gmail_mcp/bootstrap/cli.py:43]
-- [ ] [Review][Patch] Zapisuj bezpieczny Digest failed również dla błędów konfiguracji i dostawcy [src/gmail_mcp/bootstrap/cli.py:43]
-- [ ] [Review][Patch] Waliduj dokładny format `HH:MM` dla czasu harmonogramu [src/gmail_mcp/bootstrap/settings.py:180]
-- [ ] [Review][Patch] Zapisuj failed Digest, gdy odczyt podsumowań z repozytorium się nie powiedzie [src/gmail_mcp/application/digest.py:45]
-- [ ] [Review][Patch] Odczyt ostatniego Digestu ogranicz do fingerprintu aktywnego konta [src/gmail_mcp/adapters/sqlite_analysis_state.py:134]
+- [x] [Review][Patch] Trwale wyprowadzaj i zapisuj rzeczywisty powód uwzględnienia pozycji Digestu [src/gmail_mcp/application/digest.py:55]
+- [x] [Review][Patch] Egzekwuj konfigurację czasu i strefy harmonogramu w uruchomieniu `--scheduled` [src/gmail_mcp/bootstrap/cli.py:41]
+- [x] [Review][Patch] Pozostaw ręczne uruchomienie Digestu dostępne po wyłączeniu harmonogramu [src/gmail_mcp/bootstrap/cli.py:43]
+- [x] [Review][Patch] Zapisuj bezpieczny Digest failed również dla błędów konfiguracji i dostawcy [src/gmail_mcp/bootstrap/cli.py:43]
+- [x] [Review][Patch] Waliduj dokładny format `HH:MM` dla czasu harmonogramu [src/gmail_mcp/bootstrap/settings.py:180]
+- [x] [Review][Patch] Zapisuj failed Digest, gdy odczyt podsumowań z repozytorium się nie powiedzie [src/gmail_mcp/application/digest.py:45]
+- [x] [Review][Patch] Odczyt ostatniego Digestu ogranicz do fingerprintu aktywnego konta [src/gmail_mcp/adapters/sqlite_analysis_state.py:134]

@@ -148,6 +148,20 @@ def test_sqlite_claims_thread_again_when_message_changes_or_reanalysis_is_reques
     assert len(forced.candidates) == 1
 
 
+def test_sqlite_records_the_reason_a_thread_was_included_in_a_run(tmp_path) -> None:
+    state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
+    first = state.plan("account", [_candidate("one")], filter_hash="filter")
+    state.finish(first, "complete")
+
+    changed = state.plan("account", [_candidate("two")], filter_hash="filter")
+    state.finish(changed, "complete")
+    forced = state.plan("account", [_candidate("two")], reanalysis=True, filter_hash="filter")
+
+    assert state.inclusion_reasons_for_run(first.run_id) == {"thread": "newly_matching"}
+    assert state.inclusion_reasons_for_run(changed.run_id) == {"thread": "new_message"}
+    assert state.inclusion_reasons_for_run(forced.run_id) == {"thread": "reanalysis"}
+
+
 def test_filter_membership_requalifies_a_thread_that_leaves_and_rejoins(tmp_path) -> None:
     state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
     first = state.plan("account", [_candidate()], filter_hash="filter")

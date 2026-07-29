@@ -48,8 +48,18 @@ class SqliteAnalysisStateAdapter:
                     run_id TEXT NOT NULL, thread_id TEXT NOT NULL, latest_message_id TEXT NOT NULL,
                     latest_message_at TEXT NOT NULL, filter_hash TEXT NOT NULL,
                     position INTEGER NOT NULL, status TEXT NOT NULL,
+                    inclusion_reason TEXT NOT NULL DEFAULT 'new_message',
                     PRIMARY KEY (run_id, thread_id))"""
             )
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(analysis_run_candidate)")
+            }
+            if "inclusion_reason" not in columns:
+                connection.execute(
+                    "ALTER TABLE analysis_run_candidate ADD COLUMN inclusion_reason TEXT "
+                    "NOT NULL DEFAULT 'new_message'"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS analysis_run (
                     run_id TEXT PRIMARY KEY, account TEXT NOT NULL, input_hash TEXT NOT NULL,
@@ -229,6 +239,7 @@ class SqliteAnalysisStateAdapter:
                     connection, account_fingerprint, unique, filter_hash=filter_hash
                 )
                 claimed: list[ThreadCandidate] = []
+                inclusion_reasons: dict[str, str] = {}
                 for candidate in unique:
                     membership = connection.execute(
                         "SELECT is_matching FROM filter_membership WHERE account = ? "
@@ -248,6 +259,10 @@ class SqliteAnalysisStateAdapter:
                     message_changed = state is None or state[0] != candidate.latest_message_id
                     if active_claim is None and (reanalysis or newly_matching or message_changed):
                         claimed.append(candidate)
+                        inclusion_reasons[candidate.thread_id] = (
+                            "reanalysis" if reanalysis else "newly_matching"
+                            if newly_matching else "new_message"
+                        )
                     connection.execute(
                         "INSERT INTO filter_membership("
                         "account, filter_hash, thread_id, is_matching) "
@@ -279,8 +294,8 @@ class SqliteAnalysisStateAdapter:
                 )
                 connection.executemany(
                     "INSERT INTO analysis_run_candidate(run_id, thread_id, latest_message_id, "
-                    "latest_message_at, filter_hash, position, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 'running')",
+                    "latest_message_at, filter_hash, position, status, inclusion_reason) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'running', ?)",
                     [
                         (
                             run.run_id,
@@ -289,6 +304,7 @@ class SqliteAnalysisStateAdapter:
                             item.latest_message_at,
                             item.filter_hash,
                             position,
+                            inclusion_reasons[item.thread_id],
                         )
                         for position, item in enumerate(claimed)
                     ],
@@ -305,6 +321,14 @@ class SqliteAnalysisStateAdapter:
                 (run_id,),
             ).fetchall()
         return tuple((str(row[0]), str(row[1]), str(row[2])) for row in rows)
+
+    def inclusion_reasons_for_run(self, run_id: str) -> dict[str, str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT thread_id, inclusion_reason FROM analysis_run_candidate WHERE run_id = ?",
+                (run_id,),
+            ).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
 
     def finish(
         self,
