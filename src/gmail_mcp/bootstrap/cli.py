@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -16,6 +17,7 @@ from gmail_mcp.application.gmail_connection import (
     RequireGmailConnection,
 )
 from gmail_mcp.application.gmail_filter import PreviewGmailFilter, SaveActiveGmailFilter
+from gmail_mcp.application.local_data import DeleteLocalData, PurgeExpiredResults
 from gmail_mcp.application.thread_summary import SummarizeAnalysisRun
 from gmail_mcp.bootstrap.settings import (
     ConfigurationError,
@@ -35,14 +37,18 @@ def main() -> int:
         choices=(
             "connect-gmail", "disconnect-gmail", "gmail-status", "preview-gmail-filter",
             "set-gmail-filter", "gmail-filter-status", "ai-provider-status",
-            "run-daily-digest",
+            "run-daily-digest", "cleanup-local-data", "delete-local-data",
         ),
     )
     parser.add_argument("--query")
     parser.add_argument("--confirm", action="store_true")
     parser.add_argument("--scheduled", action="store_true")
+    parser.add_argument("--include-oauth-token", action="store_true")
     arguments = parser.parse_args()
     command = arguments.command
+    if command == "delete-local-data" and not arguments.confirm:
+        print("failed: delete-local-data requires --confirm")
+        return 1
     if command == "run-daily-digest":
         try:
             settings = load_settings()
@@ -64,6 +70,10 @@ def main() -> int:
                     return 0
             gmail = GmailOAuthAdapter(settings.credentials_path, settings.paths.oauth_token)
             state = SqliteAnalysisStateAdapter(settings.paths.sqlite)
+            retention = PurgeExpiredResults(state).execute()
+            if retention.status == "failed":
+                print(f"failed: {retention.reason} {retention.next_action}")
+                return 1
             filters = ActiveFilterRepositoryAdapter(settings.paths.filters)
             plan = PlanActiveFilterAnalysis(gmail, filters, state)
             summarize = SummarizeAnalysisRun(
@@ -91,6 +101,55 @@ def main() -> int:
             f"{digest.status}: threads={digest.matching_thread_count} {digest.reason or ''}".strip()
         )
         return 1 if digest.status == "failed" else 0
+    if command == "cleanup-local-data":
+        try:
+            settings = load_gmail_settings(require_credentials=False)
+            state = SqliteAnalysisStateAdapter(settings.paths.sqlite)
+            result = PurgeExpiredResults(state).execute()
+        except ConfigurationError as error:
+            print(f"failed: {error}")
+            return 1
+        if result.status == "complete":
+            print(
+                f"complete: digests={result.deleted_digests} summaries={result.deleted_summaries}"
+            )
+            return 0
+        print(f"failed: {result.reason} {result.next_action}")
+        return 1
+    if command == "delete-local-data":
+        try:
+            settings = load_gmail_settings(require_credentials=False)
+            gmail = GmailOAuthAdapter(settings.credentials_path, settings.paths.oauth_token)
+            state = SqliteAnalysisStateAdapter(settings.paths.sqlite)
+            try:
+                email = gmail.current_account_email().strip().lower()
+                account: str | None = hashlib.sha256(email.encode()).hexdigest()
+            except Exception:
+                accounts = state.local_account_fingerprints()
+                if len(accounts) > 1:
+                    print(
+                        "failed: Local account selection is unavailable. Reconnect Gmail and retry."
+                    )
+                    return 1
+                account = accounts[0] if accounts else None
+            result = DeleteLocalData(state, gmail).execute(
+                account, include_oauth_token=arguments.include_oauth_token
+            )
+        except ConfigurationError as error:
+            print(f"failed: {error}")
+            return 1
+        except Exception:
+            print("failed: Local data deletion is unavailable. Retry later.")
+            return 1
+        if result.status == "complete":
+            print(
+                "complete: "
+                f"digests={result.deleted_digests} summaries={result.deleted_summaries} "
+                f"runs={result.deleted_runs}"
+            )
+            return 0
+        print(f"{result.status}: {result.reason} {result.next_action}")
+        return 1
     if command == "ai-provider-status":
         try:
             status = load_provider_status()

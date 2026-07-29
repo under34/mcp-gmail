@@ -116,6 +116,20 @@ def test_daily_digest_cli_uses_the_composed_runner(tmp_path: Path, monkeypatch, 
     assert "complete: threads=0" in capsys.readouterr().out
 
 
+def test_delete_local_data_cli_requires_confirmation_before_loading_settings(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "load_gmail_settings",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("must not load settings")),
+    )
+    monkeypatch.setattr(sys, "argv", ["gmail-mcp", "delete-local-data"])
+
+    assert cli.main() == 1
+    assert "--confirm" in capsys.readouterr().out
+
+
 def test_filter_status_uses_account_identity_without_previewing_threads(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:

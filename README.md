@@ -82,6 +82,12 @@ uv run gmail-mcp ai-provider-status
 
 # Uruchamia ten sam Digest, którego wywołuje lokalny cron.
 uv run gmail-mcp run-daily-digest
+
+# Usuwa lokalne wyniki starsze niż 30 dni.
+uv run gmail-mcp cleanup-local-data
+
+# Nieodwracalnie usuwa lokalne wyniki aktywnego konta; opcjonalnie także token OAuth.
+uv run gmail-mcp delete-local-data --confirm --include-oauth-token
 ```
 
 Po poprawnym połączeniu pierwsze polecenie wyświetli adres połączonego konta.
@@ -111,6 +117,8 @@ Aplikacja nie zmienia systemowego crontaba. Dodaj lokalnie wpis uruchamiający
 CLI zgodnie z `DIGEST_SCHEDULE_TIME`, np. dla 08:00: `0 8 * * * cd /ścieżka/do/mcp-gmail && uv run gmail-mcp run-daily-digest --scheduled`.
 Cron powinien mieć dostęp do tych samych zmiennych środowiskowych lub lokalnego
 pliku `.env`; zmiana dostawcy albo harmonogramu działa przy następnym uruchomieniu.
+Przed każdym rzeczywistym Digestem aplikacja wykonuje lokalną retencję wyników
+starszych niż 30 dni.
 
 ## Bezpieczeństwo i prywatność
 
@@ -120,6 +128,9 @@ pliku `.env`; zmiana dostawcy albo harmonogramu działa przy następnym uruchomi
   użytkownika (`platformdirs`), poza checkoutem.
 - `disconnect-gmail` usuwa tylko lokalny token. Jeśli chcesz cofnąć dostęp po
   stronie Google, zrób to w ustawieniach bezpieczeństwa konta Google.
+- Retencja i `delete-local-data` usuwają wyłącznie lokalne dane aplikacji; nie
+  zmieniają wiadomości, etykiet ani innych danych w Gmailu. Ręczne usunięcie
+  zachowuje aktywny filtr i plik credentials OAuth.
 
 ## Architektura i roadmapa
 
