@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from gmail_mcp.application.analysis_state import AnalysisStateError
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
+from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
 class SqliteAnalysisStateAdapter:
@@ -23,6 +25,7 @@ class SqliteAnalysisStateAdapter:
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS thread_state (
                     account TEXT NOT NULL, thread_id TEXT NOT NULL,
@@ -52,6 +55,84 @@ class SqliteAnalysisStateAdapter:
                     created_at TEXT NOT NULL, lease_expires_at TEXT NOT NULL,
                     covered_from TEXT, covered_to TEXT, status TEXT NOT NULL,
                     reanalysis INTEGER NOT NULL, reason TEXT)"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS thread_summary (
+                    account TEXT NOT NULL, thread_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                    input_hash TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL, summary TEXT NOT NULL, priority TEXT NOT NULL,
+                    actions_json TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL,
+                    reason TEXT, source_link TEXT NOT NULL, disclaimer TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (account, thread_id, run_id))"""
+            )
+            self._migrate_thread_summary(connection)
+            connection.execute("COMMIT")
+
+    def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
+        if len(input_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in input_hash
+        ):
+            raise AnalysisStateError("Summary input hash is invalid.")
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                active_run = connection.execute(
+                    "SELECT 1 FROM analysis_run WHERE run_id = ? AND account = ? "
+                    "AND status = 'running'",
+                    (run_id, summary.account_fingerprint),
+                ).fetchone()
+                active_claim = connection.execute(
+                    "SELECT 1 FROM analysis_claim WHERE account = ? AND thread_id = ? "
+                    "AND run_id = ?",
+                    (summary.account_fingerprint, summary.thread_id, run_id),
+                ).fetchone()
+                if active_run is None or active_claim is None:
+                    raise AnalysisStateError("Analysis run is no longer active.")
+                connection.execute(
+                    "INSERT INTO thread_summary("
+                    "account, thread_id, run_id, input_hash, schema_version, summary, priority, "
+                        "actions_json, provider, status, reason, source_link, disclaimer, "
+                        "created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(account, thread_id, run_id) DO NOTHING",
+                    (
+                        summary.account_fingerprint,
+                        summary.thread_id,
+                        run_id,
+                        input_hash,
+                        summary.schema_version,
+                        summary.summary,
+                        summary.priority,
+                        json.dumps(summary.actions),
+                        summary.provider,
+                        summary.status,
+                        None,
+                        summary.source_link,
+                        summary.disclaimer,
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local summary state is unavailable.") from error
+
+    @staticmethod
+    def _migrate_thread_summary(connection: sqlite3.Connection) -> None:
+        """Discard pre-release rows whose provenance cannot be reconstructed safely."""
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(thread_summary)")
+        }
+        required = {"input_hash", "reason", "source_link", "disclaimer"}
+        if not required.issubset(columns):
+            connection.execute("DROP TABLE thread_summary")
+            connection.execute(
+                """CREATE TABLE thread_summary (
+                    account TEXT NOT NULL, thread_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                    input_hash TEXT NOT NULL, schema_version INTEGER NOT NULL,
+                    summary TEXT NOT NULL, priority TEXT NOT NULL, actions_json TEXT NOT NULL,
+                    provider TEXT NOT NULL, status TEXT NOT NULL, reason TEXT,
+                    source_link TEXT NOT NULL, disclaimer TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY (account, thread_id, run_id))"""
             )
 
     def plan(
