@@ -44,7 +44,7 @@ development_status:
   epic-2-retrospective: optional
 
   epic-3: in-progress
-  3-1-lokalny-serwer-fastmcp-i-odczyt-digestu: in-progress
+  3-1-lokalny-serwer-fastmcp-i-odczyt-digestu: done
   3-2-potwierdzona-analiza-ad-hoc-przez-wybranego-dostawce: backlog
   3-3-swiadome-porownanie-openai-i-claude: backlog
   epic-3-retrospective: optional

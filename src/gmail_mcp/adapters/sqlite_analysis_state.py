@@ -7,7 +7,7 @@ from pathlib import Path
 
 from gmail_mcp.application.analysis_state import AnalysisStateError
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
-from gmail_mcp.domain.digest import Digest
+from gmail_mcp.domain.digest import Digest, DigestItem
 from gmail_mcp.domain.local_data import LocalDataResult
 from gmail_mcp.domain.thread_summary import ThreadSummary
 
@@ -161,11 +161,36 @@ class SqliteAnalysisStateAdapter:
                 "WHERE account = ? ORDER BY generated_at DESC LIMIT 1",
                 (account_fingerprint,),
             ).fetchone()
-        if row is None:
-            return None
+            if row is None:
+                return None
+            item_rows = connection.execute(
+                "SELECT item.thread_id, summary.summary, summary.priority, summary.actions_json, "
+                "summary.provider, item.inclusion_reason FROM digest_item AS item "
+                "JOIN thread_summary AS summary ON summary.run_id = item.run_id "
+                "AND summary.thread_id = item.thread_id AND summary.account = ? "
+                "WHERE item.run_id = ? ORDER BY item.position",
+                (account_fingerprint, row[0]),
+            ).fetchall()
+        items = tuple(
+            DigestItem(
+                ThreadSummary(
+                    account_fingerprint, str(item[0]), str(item[1]), str(item[2]),
+                    tuple(json.loads(str(item[3]))), str(item[4])
+                ),
+                str(item[5]),
+            )
+            for item in item_rows
+        )
+        status = str(row[2])
+        reason = row[8]
+        next_action = row[9]
+        if status == "complete" and len(items) != int(row[6]):
+            status = "partial"
+            reason = "Local digest items are incomplete."
+            next_action = "Run the daily digest again."
         return Digest(
-            str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], row[5],
-            int(row[6]), (), row[7], row[8], row[9]
+            str(row[0]), str(row[1]), status, str(row[3]), row[4], row[5],
+            int(row[6]), items, row[7], reason, next_action
         )
 
     def purge_expired_results(self, now: datetime) -> LocalDataResult:

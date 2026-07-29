@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 gmail-mcp = "gmail_mcp.bootstrap.cli:main"
+gmail-mcp-server = "gmail_mcp.bootstrap.mcp:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]

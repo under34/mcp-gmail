@@ -1,6 +1,6 @@
 ---
 title: 'Story 3.1: Lokalny serwer FastMCP i odczyt Digestu'
-status: in-progress
+status: done
 baseline_commit: a45a17c
 created: 2026-07-29
 ---
@@ -22,21 +22,21 @@ so that wykorzystuję wyniki analizy bez wystawiania usługi do sieci.
 
 ## Tasks / Subtasks
 
-- [ ] Dodaj domain/application use case odczytu Digestu i serializację MCP envelope bez importów SDK/SQLite. (AC 2–3)
-  - [ ] Rozszerz port stanu o odczyt ostatniego Digestu dla fingerprintu aktywnego konta; nie zwracaj danych innego konta.
-  - [ ] Odtwórz uporządkowane `DigestItem` z `digest_item` i `thread_summary`; brak podsumowania traktuj jako bezpieczny częściowy/błędny wynik, nigdy jako sfabrykowaną pozycję.
-  - [ ] Łącz po `(run_id, thread_id, account)`; osierocona/nieprawidłowa pozycja lub niespójny count zwraca `partial` z zachowanymi poprawnymi pozycjami i next_action, a brak bezpiecznej rekonstrukcji zwraca `failed`.
-  - [ ] Zmapuj `Digest`/`DigestItem` do danych JSON-serializowalnych bez dodatkowych treści Gmaila.
-- [ ] Dodaj adapter FastMCP i entry point `stdio`. (AC 1, 4)
-  - [ ] Użyj zablokowanego SDK `mcp>=1.27,<2` i importu `mcp.server.fastmcp.FastMCP`; nie dodawaj zależności.
-  - [ ] Zarejestruj wyłącznie trzy nazwane tools; placeholdery Story 3.2/3.3 zwracają `failed`, `data: null` i stabilny reason/next_action bez side effectów.
-  - [ ] Dodaj jeden skrypt `gmail-mcp-server` uruchamiający stdio bez hosta, portu lub HTTP; stdout jest wyłącznie dla protokołu MCP, a diagnostyka trafia na stderr.
-- [ ] Skomponuj adaptery w bootstrapie i obsłuż błędy lokalnie. (AC 2–4)
-  - [ ] Ustal fingerprint przez istniejący `GmailOAuthAdapter.current_account_email()`; nie ujawniaj e-maila przy błędzie.
-  - [ ] Reużyj `SqliteAnalysisStateAdapter.latest_digest(account)` i istniejących `Digest`/`ThreadSummary`; nie twórz nowego store’u.
-- [ ] Dodaj testy in-memory/FastMCP bez sieci, tokenów i Gmaila. (AC 1–4)
-  - [ ] Sprawdź discoverability dokładnie trzech tools przez subprocess entry point, stdout-only MCP, sukces get_daily_digest, brak Digestu, partial/failed, izolację dwóch kont oraz brak naruszeń prywatności.
-  - [ ] Uruchom `uv run pytest -q` oraz `uv run ruff check .`.
+- [x] Dodaj domain/application use case odczytu Digestu i serializację MCP envelope bez importów SDK/SQLite. (AC 2–3)
+  - [x] Rozszerz port stanu o odczyt ostatniego Digestu dla fingerprintu aktywnego konta; nie zwracaj danych innego konta.
+  - [x] Odtwórz uporządkowane `DigestItem` z `digest_item` i `thread_summary`; brak podsumowania traktuj jako bezpieczny częściowy/błędny wynik, nigdy jako sfabrykowaną pozycję.
+  - [x] Łącz po `(run_id, thread_id, account)`; osierocona/nieprawidłowa pozycja lub niespójny count zwraca `partial` z zachowanymi poprawnymi pozycjami i next_action, a brak bezpiecznej rekonstrukcji zwraca `failed`.
+  - [x] Zmapuj `Digest`/`DigestItem` do danych JSON-serializowalnych bez dodatkowych treści Gmaila.
+- [x] Dodaj adapter FastMCP i entry point `stdio`. (AC 1, 4)
+  - [x] Użyj zablokowanego SDK `mcp>=1.27,<2` i importu `mcp.server.fastmcp.FastMCP`; nie dodawaj zależności.
+  - [x] Zarejestruj wyłącznie trzy nazwane tools; placeholdery Story 3.2/3.3 zwracają `failed`, `data: null` i stabilny reason/next_action bez side effectów.
+  - [x] Dodaj jeden skrypt `gmail-mcp-server` uruchamiający stdio bez hosta, portu lub HTTP; stdout jest wyłącznie dla protokołu MCP, a diagnostyka trafia na stderr.
+- [x] Skomponuj adaptery w bootstrapie i obsłuż błędy lokalnie. (AC 2–4)
+  - [x] Ustal fingerprint przez istniejący `GmailOAuthAdapter.current_account_email()`; nie ujawniaj e-maila przy błędzie.
+  - [x] Reużyj `SqliteAnalysisStateAdapter.latest_digest(account)` i istniejących `Digest`/`ThreadSummary`; nie twórz nowego store’u.
+- [x] Dodaj testy in-memory/FastMCP bez sieci, tokenów i Gmaila. (AC 1–4)
+  - [x] Sprawdź discoverability dokładnie trzech tools przez subprocess entry point, stdout-only MCP, sukces get_daily_digest, brak Digestu, partial/failed, izolację dwóch kont oraz brak naruszeń prywatności.
+  - [x] Uruchom `uv run pytest -q` oraz `uv run ruff check .`.
 
 ## Dev Notes
 
@@ -64,14 +64,25 @@ so that wykorzystuję wyniki analizy bez wystawiania usługi do sieci.
 ### Completion Notes
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
+- Zaimplementowano odczyt Digestu, adapter FastMCP z trzema tools oraz entry point stdio.
+- Pełna regresja: 105 passed; Ruff czysty.
 
 ### File List
 
 - _bmad-output/implementation-artifacts/3-1-lokalny-serwer-fastmcp-i-odczyt-digestu.md
+- README.md
+- pyproject.toml
+- src/gmail_mcp/application/digest_read.py
+- src/gmail_mcp/adapters/fastmcp_server.py
+- src/gmail_mcp/adapters/sqlite_analysis_state.py
+- src/gmail_mcp/bootstrap/mcp.py
+- tests/unit/test_digest_read.py
+- tests/unit/test_fastmcp_server.py
 
 ## Change Log
 
 - 2026-07-29: Utworzono Story 3.1 z kontraktem stdio, trzema narzędziami MCP i odczytem lokalnego Digestu.
+- 2026-07-29: Zaimplementowano lokalny serwer FastMCP i odczyt Digestu; status review.
 
 ### Review Findings
 
@@ -80,3 +91,6 @@ so that wykorzystuję wyniki analizy bez wystawiania usługi do sieci.
 - [x] [Review][Patch] Ustal deterministyczną politykę dla osieroconych/uszkodzonych pozycji Digestu i niespójnych liczników.
 - [x] [Review][Patch] Wymagaj dla placeholderów statusu `failed`, `data: null`, bezpiecznego reason i next_action bez side effectów.
 - [x] [Review][Patch] Ustal jeden entry point stdio, stdout zarezerwowany dla MCP, stderr dla diagnostyki i test subprocess discovery.
+- [x] [Review][Patch] Zwracaj `partial` zamiast `complete`, gdy rekonstrukcja pomija osierocone pozycje lub licznik Digestu nie zgadza się z pozycjami [src/gmail_mcp/adapters/sqlite_analysis_state.py:156]
+- [x] [Review][Patch] Ponownie zweryfikuj fingerprint aktywnego konta przed odczytem Digestu, aby nie zwrócić danych po zmianie OAuth [src/gmail_mcp/bootstrap/mcp.py:15]
+- [x] [Review][Patch] Dodaj testy SQLite hydratacji i integrity Digestu oraz test entry point/subprocess stdio wymagane przez AC [tests/unit/test_sqlite_analysis_state.py:106]
