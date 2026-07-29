@@ -106,6 +106,36 @@ def test_sqlite_persists_digest_metadata_without_a_thread_body(tmp_path) -> None
     assert state.latest_digest("account").run_id == "run"  # type: ignore[union-attr]
 
 
+def test_latest_digest_hydrates_ordered_items_and_marks_missing_summaries_partial(tmp_path) -> None:
+    database = tmp_path / "state.sqlite3"
+    state = SqliteAnalysisStateAdapter(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO digest VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("run", "account", "complete", "now", None, None, 2, "openai", None, None),
+        )
+        connection.execute(
+            "INSERT INTO digest_item VALUES (?, ?, ?, ?, ?)",
+            ("run", 0, "one", "link", "new_message"),
+        )
+        connection.execute(
+            "INSERT INTO digest_item VALUES (?, ?, ?, ?, ?)",
+            ("run", 1, "missing", "link", "reanalysis"),
+        )
+        connection.execute(
+            "INSERT INTO thread_summary VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "account", "one", "run", "a" * 64, 1, "Krótko.", "niski", "[]",
+                "openai", "complete", None, "link", "notice", "now",
+            ),
+        )
+
+    digest = state.latest_digest("account")
+
+    assert digest.status == "partial"  # type: ignore[union-attr]
+    assert [item.thread_id for item in digest.items] == ["one"]  # type: ignore[union-attr]
+
+
 def test_sqlite_retention_deletes_only_results_strictly_older_than_30_days(tmp_path) -> None:
     database = tmp_path / "state.sqlite3"
     state = SqliteAnalysisStateAdapter(database)

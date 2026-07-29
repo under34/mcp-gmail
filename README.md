@@ -88,6 +88,9 @@ uv run gmail-mcp cleanup-local-data
 
 # Nieodwracalnie usuwa lokalne wyniki aktywnego konta; opcjonalnie także token OAuth.
 uv run gmail-mcp delete-local-data --confirm --include-oauth-token
+
+# Uruchamia lokalny serwer MCP wyłącznie przez stdio.
+uv run gmail-mcp-server
 ```
 
 Po poprawnym połączeniu pierwsze polecenie wyświetli adres połączonego konta.
@@ -119,6 +122,13 @@ Cron powinien mieć dostęp do tych samych zmiennych środowiskowych lub lokalne
 pliku `.env`; zmiana dostawcy albo harmonogramu działa przy następnym uruchomieniu.
 Przed każdym rzeczywistym Digestem aplikacja wykonuje lokalną retencję wyników
 starszych niż 30 dni.
+
+## Lokalny serwer MCP
+
+`uv run gmail-mcp-server` uruchamia serwer wyłącznie przez transport `stdio`.
+Nie otwiera portu HTTP ani nie wykonuje operacji modyfikujących Gmaila. Udostępnia
+`get_daily_digest` oraz bezpieczne placeholdery przyszłych narzędzi
+`summarize_gmail` i `compare_summaries`.
 
 ## Bezpieczeństwo i prywatność
 
