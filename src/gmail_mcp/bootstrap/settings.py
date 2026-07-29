@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import time
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import dotenv_values
 
@@ -28,6 +31,9 @@ class Settings:
     anthropic_api_key: str | None
     credentials_path: Path | None
     paths: AppPaths
+    digest_schedule_enabled: bool = True
+    digest_schedule_time: time = time(8, 0)
+    digest_schedule_timezone: str | None = None
 
 
 @dataclass(frozen=True, repr=False)
@@ -57,13 +63,19 @@ def load_settings(
     openai_api_key = values.get("OPENAI_API_KEY")
     anthropic_api_key = values.get("ANTHROPIC_API_KEY")
     _validate_selected_provider(provider, openai_api_key, anthropic_api_key)
+    schedule_enabled = _load_schedule_enabled(values)
+    schedule_time = _load_schedule_time(values)
 
+    timezone = _load_schedule_timezone(values)
     return Settings(
         ai_provider=provider,
         openai_api_key=openai_api_key,
         anthropic_api_key=anthropic_api_key,
         credentials_path=gmail_settings.credentials_path,
         paths=gmail_settings.paths,
+        digest_schedule_enabled=schedule_enabled,
+        digest_schedule_time=schedule_time,
+        digest_schedule_timezone=timezone,
     )
 
 
@@ -156,3 +168,33 @@ def _validate_selected_provider(
             f"{required_variable} is required for the selected AI_PROVIDER. "
             "Add it to the process environment or local .env file."
         )
+
+
+def _load_schedule_enabled(values: Mapping[str, str]) -> bool:
+    value = values.get("DIGEST_SCHEDULE_ENABLED", "true").strip().lower()
+    if value in {"true", "1", "yes"}:
+        return True
+    if value in {"false", "0", "no"}:
+        return False
+    raise ConfigurationError("DIGEST_SCHEDULE_ENABLED must be true or false.")
+
+
+def _load_schedule_time(values: Mapping[str, str]) -> time:
+    value = values.get("DIGEST_SCHEDULE_TIME", "08:00").strip()
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+        raise ConfigurationError("DIGEST_SCHEDULE_TIME must use HH:MM.")
+    try:
+        return time.fromisoformat(value)
+    except ValueError as error:
+        raise ConfigurationError("DIGEST_SCHEDULE_TIME must use HH:MM.") from error
+
+
+def _load_schedule_timezone(values: Mapping[str, str]) -> str | None:
+    value = values.get("DIGEST_SCHEDULE_TIMEZONE", "").strip()
+    if not value:
+        return None
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as error:
+        raise ConfigurationError("DIGEST_SCHEDULE_TIMEZONE must be an IANA timezone.") from error
+    return value

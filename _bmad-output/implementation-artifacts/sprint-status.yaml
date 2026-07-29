@@ -39,7 +39,7 @@ development_status:
   epic-2: in-progress
   2-1-lokalny-stan-analizy-i-deduplikacja-watkow: done
   2-2-walidowane-podsumowanie-watku-przez-wybranego-dostawce-ai: done
-  2-3-poranny-digest-przez-lokalny-harmonogram: backlog
+  2-3-poranny-digest-przez-lokalny-harmonogram: done
   2-4-retencja-i-reczne-usuwanie-lokalnych-danych: backlog
   epic-2-retrospective: optional
 

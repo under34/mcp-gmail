@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gmail_mcp.application.analysis_state import AnalysisStateError
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
+from gmail_mcp.domain.digest import Digest
 from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
@@ -47,8 +48,18 @@ class SqliteAnalysisStateAdapter:
                     run_id TEXT NOT NULL, thread_id TEXT NOT NULL, latest_message_id TEXT NOT NULL,
                     latest_message_at TEXT NOT NULL, filter_hash TEXT NOT NULL,
                     position INTEGER NOT NULL, status TEXT NOT NULL,
+                    inclusion_reason TEXT NOT NULL DEFAULT 'new_message',
                     PRIMARY KEY (run_id, thread_id))"""
             )
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(analysis_run_candidate)")
+            }
+            if "inclusion_reason" not in columns:
+                connection.execute(
+                    "ALTER TABLE analysis_run_candidate ADD COLUMN inclusion_reason TEXT "
+                    "NOT NULL DEFAULT 'new_message'"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS analysis_run (
                     run_id TEXT PRIMARY KEY, account TEXT NOT NULL, input_hash TEXT NOT NULL,
@@ -66,8 +77,84 @@ class SqliteAnalysisStateAdapter:
                     created_at TEXT NOT NULL,
                     PRIMARY KEY (account, thread_id, run_id))"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS digest (
+                    run_id TEXT PRIMARY KEY, account TEXT NOT NULL, status TEXT NOT NULL,
+                    generated_at TEXT NOT NULL, covered_from TEXT, covered_to TEXT,
+                    matching_thread_count INTEGER NOT NULL, provider TEXT, reason TEXT,
+                    next_action TEXT)"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS digest_item (
+                    run_id TEXT NOT NULL, position INTEGER NOT NULL, thread_id TEXT NOT NULL,
+                    source_link TEXT NOT NULL, inclusion_reason TEXT NOT NULL,
+                    PRIMARY KEY (run_id, position))"""
+            )
             self._migrate_thread_summary(connection)
             connection.execute("COMMIT")
+
+    def save_digest(self, digest: Digest) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "INSERT INTO digest(run_id, account, status, generated_at, covered_from, "
+                    "covered_to, matching_thread_count, provider, reason, next_action) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        digest.run_id,
+                        digest.account_fingerprint,
+                        digest.status,
+                        digest.generated_at,
+                        digest.covered_from,
+                        digest.covered_to,
+                        digest.matching_thread_count,
+                        digest.provider,
+                        digest.reason,
+                        digest.next_action,
+                    ),
+                )
+                connection.executemany(
+                    "INSERT INTO digest_item(run_id, position, thread_id, source_link, "
+                    "inclusion_reason) VALUES (?, ?, ?, ?, ?)",
+                    [
+                        (digest.run_id, position, item.thread_id, item.summary.source_link,
+                         item.inclusion_reason)
+                        for position, item in enumerate(digest.items)
+                    ],
+                )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local digest state is unavailable.") from error
+
+    def summaries_for_run(self, run_id: str) -> tuple[ThreadSummary, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT account, thread_id, summary, priority, actions_json, provider "
+                "FROM thread_summary WHERE run_id = ? ORDER BY created_at, thread_id",
+                (run_id,),
+            ).fetchall()
+        return tuple(
+            ThreadSummary(
+                str(row[0]), str(row[1]), str(row[2]), str(row[3]),
+                tuple(json.loads(str(row[4]))), str(row[5])
+            )
+            for row in rows
+        )
+
+    def latest_digest(self, account_fingerprint: str) -> Digest | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT run_id, account, status, generated_at, covered_from, covered_to, "
+                "matching_thread_count, provider, reason, next_action FROM digest "
+                "WHERE account = ? ORDER BY generated_at DESC LIMIT 1",
+                (account_fingerprint,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Digest(
+            str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], row[5],
+            int(row[6]), (), row[7], row[8], row[9]
+        )
 
     def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
         if len(input_hash) != 64 or any(
@@ -152,6 +239,7 @@ class SqliteAnalysisStateAdapter:
                     connection, account_fingerprint, unique, filter_hash=filter_hash
                 )
                 claimed: list[ThreadCandidate] = []
+                inclusion_reasons: dict[str, str] = {}
                 for candidate in unique:
                     membership = connection.execute(
                         "SELECT is_matching FROM filter_membership WHERE account = ? "
@@ -171,6 +259,10 @@ class SqliteAnalysisStateAdapter:
                     message_changed = state is None or state[0] != candidate.latest_message_id
                     if active_claim is None and (reanalysis or newly_matching or message_changed):
                         claimed.append(candidate)
+                        inclusion_reasons[candidate.thread_id] = (
+                            "reanalysis" if reanalysis else "newly_matching"
+                            if newly_matching else "new_message"
+                        )
                     connection.execute(
                         "INSERT INTO filter_membership("
                         "account, filter_hash, thread_id, is_matching) "
@@ -202,8 +294,8 @@ class SqliteAnalysisStateAdapter:
                 )
                 connection.executemany(
                     "INSERT INTO analysis_run_candidate(run_id, thread_id, latest_message_id, "
-                    "latest_message_at, filter_hash, position, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 'running')",
+                    "latest_message_at, filter_hash, position, status, inclusion_reason) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'running', ?)",
                     [
                         (
                             run.run_id,
@@ -212,6 +304,7 @@ class SqliteAnalysisStateAdapter:
                             item.latest_message_at,
                             item.filter_hash,
                             position,
+                            inclusion_reasons[item.thread_id],
                         )
                         for position, item in enumerate(claimed)
                     ],
@@ -228,6 +321,14 @@ class SqliteAnalysisStateAdapter:
                 (run_id,),
             ).fetchall()
         return tuple((str(row[0]), str(row[1]), str(row[2])) for row in rows)
+
+    def inclusion_reasons_for_run(self, run_id: str) -> dict[str, str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT thread_id, inclusion_reason FROM analysis_run_candidate WHERE run_id = ?",
+                (run_id,),
+            ).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
 
     def finish(
         self,

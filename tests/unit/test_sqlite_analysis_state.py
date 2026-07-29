@@ -9,6 +9,7 @@ import pytest
 from gmail_mcp.adapters.sqlite_analysis_state import SqliteAnalysisStateAdapter
 from gmail_mcp.application.analysis_state import AnalysisStateError, FinishAnalysis, PlanAnalysis
 from gmail_mcp.domain.analysis_state import ThreadCandidate
+from gmail_mcp.domain.digest import Digest
 from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
@@ -86,6 +87,24 @@ def test_sqlite_replaces_legacy_summary_rows_without_required_provenance(tmp_pat
     assert {"input_hash", "source_link", "disclaimer"}.issubset(columns)
 
 
+def test_sqlite_persists_digest_metadata_without_a_thread_body(tmp_path) -> None:
+    database = tmp_path / "state.sqlite3"
+    state = SqliteAnalysisStateAdapter(database)
+    state.save_digest(
+        Digest("run", "account", "failed", "2026-07-29T08:00:00+00:00", None, None, 0, (),
+               provider="openai", reason="Gmail is unavailable.", next_action="Reconnect Gmail.")
+    )
+
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT status, provider, reason, next_action FROM digest"
+        ).fetchone()
+        columns = {item[1] for item in connection.execute("PRAGMA table_info(digest)")}
+    assert row == ("failed", "openai", "Gmail is unavailable.", "Reconnect Gmail.")
+    assert "body" not in columns
+    assert state.latest_digest("account").run_id == "run"  # type: ignore[union-attr]
+
+
 def test_sqlite_rejects_a_summary_after_its_run_is_finished(tmp_path) -> None:
     state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
     run = state.plan("account", [_candidate()], filter_hash="filter")
@@ -127,6 +146,20 @@ def test_sqlite_claims_thread_again_when_message_changes_or_reanalysis_is_reques
 
     assert len(changed.candidates) == 1
     assert len(forced.candidates) == 1
+
+
+def test_sqlite_records_the_reason_a_thread_was_included_in_a_run(tmp_path) -> None:
+    state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
+    first = state.plan("account", [_candidate("one")], filter_hash="filter")
+    state.finish(first, "complete")
+
+    changed = state.plan("account", [_candidate("two")], filter_hash="filter")
+    state.finish(changed, "complete")
+    forced = state.plan("account", [_candidate("two")], reanalysis=True, filter_hash="filter")
+
+    assert state.inclusion_reasons_for_run(first.run_id) == {"thread": "newly_matching"}
+    assert state.inclusion_reasons_for_run(changed.run_id) == {"thread": "new_message"}
+    assert state.inclusion_reasons_for_run(forced.run_id) == {"thread": "reanalysis"}
 
 
 def test_filter_membership_requalifies_a_thread_that_leaves_and_rejoins(tmp_path) -> None:

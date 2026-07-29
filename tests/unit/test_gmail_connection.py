@@ -11,7 +11,8 @@ from gmail_mcp.application.gmail_connection import (
 )
 from gmail_mcp.bootstrap import cli
 from gmail_mcp.bootstrap.paths import get_app_paths
-from gmail_mcp.bootstrap.settings import GmailSettings, ProviderStatus
+from gmail_mcp.bootstrap.settings import GmailSettings, ProviderStatus, Settings
+from gmail_mcp.domain.digest import Digest
 from gmail_mcp.domain.gmail_connection import ConnectionResult
 
 
@@ -91,6 +92,28 @@ def test_ai_provider_status_reports_selected_provider(monkeypatch, capsys) -> No
 
     assert cli.main() == 0
     assert "selected=openai" in capsys.readouterr().out
+
+
+def test_daily_digest_cli_uses_the_composed_runner(tmp_path: Path, monkeypatch, capsys) -> None:
+    paths = get_app_paths(tmp_path / "data")
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: Settings("openai", "key", None, None, paths),
+    )
+
+    class FakeRunner:
+        def __init__(self, *args: object) -> None:
+            pass
+
+        def execute(self) -> Digest:
+            return Digest("run", "account", "complete", "now", None, None, 0, ())
+
+    monkeypatch.setattr(cli, "RunDailyDigest", FakeRunner)
+    monkeypatch.setattr(sys, "argv", ["gmail-mcp", "run-daily-digest"])
+
+    assert cli.main() == 0
+    assert "complete: threads=0" in capsys.readouterr().out
 
 
 def test_filter_status_uses_account_identity_without_previewing_threads(

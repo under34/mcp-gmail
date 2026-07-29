@@ -26,6 +26,23 @@ def test_load_settings_uses_environment_and_defaults_to_openai(tmp_path: Path) -
     assert settings.ai_provider == "openai"
     assert settings.openai_api_key == "openai-test-secret"
     assert settings.anthropic_api_key is None
+    assert settings.digest_schedule_enabled is True
+    assert settings.digest_schedule_time.isoformat() == "08:00:00"
+
+
+def test_digest_schedule_settings_allow_a_custom_time_or_disablement(tmp_path: Path) -> None:
+    settings = load_settings(
+        environ={
+            "OPENAI_API_KEY": "openai-test-secret",
+            "DIGEST_SCHEDULE_ENABLED": "false",
+            "DIGEST_SCHEDULE_TIME": "06:30",
+        },
+        env_file=tmp_path / "missing.env",
+        data_dir=tmp_path / "data",
+    )
+
+    assert settings.digest_schedule_enabled is False
+    assert settings.digest_schedule_time.isoformat() == "06:30:00"
 
 
 def test_local_dotenv_is_used_when_process_environment_has_no_key(tmp_path: Path) -> None:
