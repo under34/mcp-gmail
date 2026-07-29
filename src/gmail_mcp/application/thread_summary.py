@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Protocol
 
 from gmail_mcp.application.analysis_state import FinishAnalysis
@@ -18,7 +19,7 @@ class SummaryProviderPort(Protocol):
 
 
 class ThreadSummaryRepositoryPort(Protocol):
-    def save(self, summary: ThreadSummary, *, run_id: str) -> None: ...
+    def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None: ...
 
 
 class SummarizeAnalysisRun:
@@ -46,10 +47,17 @@ class SummarizeAnalysisRun:
                 )
                 if (
                     summary.provider not in {"openai", "claude"}
+                    or summary.account_fingerprint != candidate.account_fingerprint
                     or summary.thread_id != candidate.thread_id
+                    or summary.schema_version != 1
+                    or summary.status != "complete"
                 ):
                     raise ValueError("Invalid provider summary.")
-                self._summaries.save(summary, run_id=run.run_id)
+                self._summaries.save(
+                    summary,
+                    run_id=run.run_id,
+                    input_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                )
                 successful.add(candidate.thread_id)
             except Exception:
                 continue

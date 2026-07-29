@@ -23,7 +23,7 @@ class FakeProvider:
 class FakeSummaries:
     saved: list[str] = field(default_factory=list)
 
-    def save(self, summary: ThreadSummary, *, run_id: str) -> None:
+    def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
         self.saved.append(summary.thread_id)
 
 

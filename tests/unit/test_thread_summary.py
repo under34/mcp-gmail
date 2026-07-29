@@ -15,3 +15,19 @@ def test_thread_summary_is_validated_and_has_a_gmail_source_link() -> None:
 def test_thread_summary_rejects_more_than_three_sentences() -> None:
     with pytest.raises(ValueError, match="three"):
         ThreadSummary("account", "thread", "One. Two. Three. Four.", "niski", (), "claude")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [("schema_version", 2, "schema"), ("status", "failed", "complete")],
+)
+def test_thread_summary_rejects_unsupported_schema_or_status(field, value, message) -> None:
+    values = {field: value}
+
+    with pytest.raises(ValueError, match=message):
+        ThreadSummary("account", "thread", "Krótko.", "niski", (), "openai", **values)
+
+
+def test_thread_summary_requires_an_explicit_actions_tuple() -> None:
+    with pytest.raises(ValueError, match="tuple"):
+        ThreadSummary("account", "thread", "Krótko.", "niski", [], "openai")  # type: ignore[arg-type]

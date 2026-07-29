@@ -1,7 +1,7 @@
 ---
 title: 'Story 2.2: Walidowane podsumowanie Wątku przez wybranego Dostawcę AI'
-status: ready-for-dev
-baseline_commit: a5b6b88b44c66c6ac348fbc113360833158394ef
+status: done
+baseline_commit: e19e401dd413d45006ec4b62b694995de918fe77
 created: 2026-07-28
 ---
 
@@ -22,12 +22,12 @@ so that szybko rozpoznaję priorytet oraz działania bez ręcznego czytania cał
 
 ## Tasks / Subtasks
 
-- [ ] Dodaj `domain/thread_summary.py`: niezmienny `ThreadSummary` schema v1, ścisłą walidację priorytetu, maks. trzech zdań, jawnej listy działań, providera, statusu i źródła. (AC 2, 4)
-- [ ] Dodaj `application/thread_summary.py` z `ThreadContentPort`, `SummaryProviderPort`, portem repozytorium i use case `SummarizeAnalysisRun`. Wejściem jest wyłącznie przejęta migawka `AnalysisRun.candidates`; po sukcesach wywołaj istniejący `FinishAnalysis`. (AC 1–3)
-- [ ] Rozszerz `GmailOAuthAdapter` o kontrolowane pobranie jednego Wątku po claimie (`gmail.readonly`); nie pobieraj załączników i znormalizuj podpisy/cytaty przed providerem. (AC 1)
-- [ ] Dodaj `OpenAISummaryProviderAdapter` i `ClaudeSummaryProviderAdapter` za tym samym portem. Użyj istniejącego wyboru providera z `Settings`, bez czytania env w adapterze i bez fallbacku. (AC 2–3)
-- [ ] Dodaj minimalną trwałą tabelę summary (konto, thread/run ID, hash wejścia, schema version, zwalidowane pola, provider, status, reason, UTC timestamp), bez body/promptu/załączników. Zapis summary musi nastąpić przed oznaczeniem kandydata jako sukces. (AC 2–4)
-- [ ] Testy domain/application/adapterów: sanitizacja, schema-invalid, błąd providera, `partial(successful_thread_ids)`, brak fallbacku, trwałość source/linku oraz brak raw body w SQLite/logach. (AC 1–4)
+- [x] Dodaj `domain/thread_summary.py`: niezmienny `ThreadSummary` schema v1, ścisłą walidację priorytetu, maks. trzech zdań, jawnej listy działań, providera, statusu i źródła. (AC 2, 4)
+- [x] Dodaj `application/thread_summary.py` z `ThreadContentPort`, `SummaryProviderPort`, portem repozytorium i use case `SummarizeAnalysisRun`. Wejściem jest wyłącznie przejęta migawka `AnalysisRun.candidates`; po sukcesach wywołaj istniejący `FinishAnalysis`. (AC 1–3)
+- [x] Rozszerz `GmailOAuthAdapter` o kontrolowane pobranie jednego Wątku po claimie (`gmail.readonly`); nie pobieraj załączników i znormalizuj podpisy/cytaty przed providerem. (AC 1)
+- [x] Dodaj `OpenAISummaryProviderAdapter` i `ClaudeSummaryProviderAdapter` za tym samym portem. Użyj istniejącego wyboru providera z `Settings`, bez czytania env w adapterze i bez fallbacku. (AC 2–3)
+- [x] Dodaj minimalną trwałą tabelę summary (konto, thread/run ID, hash wejścia, schema version, zwalidowane pola, provider, status, reason, UTC timestamp), bez body/promptu/załączników. Zapis summary musi nastąpić przed oznaczeniem kandydata jako sukces. (AC 2–4)
+- [x] Testy domain/application/adapterów: sanitizacja, schema-invalid, błąd providera, `partial(successful_thread_ids)`, brak fallbacku, trwałość source/linku oraz brak raw body w SQLite/logach. (AC 1–4)
 
 ## Dev Notes
 
@@ -56,3 +56,44 @@ so that szybko rozpoznaję priorytet oraz działania bez ręcznego czytania cał
 - Ultimate context engine analysis completed - comprehensive developer guide created.
 
 ### File List
+
+- `src/gmail_mcp/domain/thread_summary.py`
+- `src/gmail_mcp/application/thread_summary.py`
+- `src/gmail_mcp/application/thread_content.py`
+- `src/gmail_mcp/adapters/gmail_oauth.py`
+- `src/gmail_mcp/adapters/openai_summary.py`
+- `src/gmail_mcp/adapters/claude_summary.py`
+- `src/gmail_mcp/adapters/sqlite_analysis_state.py`
+- `tests/unit/test_thread_summary.py`
+- `tests/unit/test_thread_content.py`
+- `tests/unit/test_summarize_analysis_run.py`
+- `tests/unit/test_summary_provider.py`
+- `tests/unit/test_sqlite_analysis_state.py`
+
+## Suggested Review Order
+
+**Analysis boundary and validation**
+
+- Validates provider output before persisting results and finishing each claimed thread.
+  [`thread_summary.py:38`](../../src/gmail_mcp/application/thread_summary.py#L38)
+
+- Defines the immutable schema, source link, status, and mandatory AI disclaimer.
+  [`thread_summary.py:11`](../../src/gmail_mcp/domain/thread_summary.py#L11)
+
+**Privacy-aware persistence**
+
+- Stores only validated summary fields, provenance hash, source link, and safe disclaimer.
+  [`sqlite_analysis_state.py:70`](../../src/gmail_mcp/adapters/sqlite_analysis_state.py#L70)
+
+- Replaces incomplete pre-release summary rows whose provenance cannot be reconstructed safely.
+  [`sqlite_analysis_state.py:105`](../../src/gmail_mcp/adapters/sqlite_analysis_state.py#L105)
+
+**Gmail content preparation**
+
+- Reads claimed threads transiently, excludes attachments, then cleans text before provider use.
+  [`gmail_oauth.py:184`](../../src/gmail_mcp/adapters/gmail_oauth.py#L184)
+
+**Verification**
+
+- Covers persisted provenance, disclaimer, and safe handling of legacy SQLite rows.
+  [`test_sqlite_analysis_state.py:39`](../../tests/unit/test_sqlite_analysis_state.py#L39)
