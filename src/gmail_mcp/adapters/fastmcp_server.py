@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 from mcp.server.fastmcp import FastMCP
 
 
+class SummarizeGmailPort(Protocol):
+    def preview(self, query: str | None = None) -> dict[str, object]: ...
+    def confirm(self, preview_token: str) -> dict[str, object]: ...
+    def execute(self, confirmation_token: str | None) -> dict[str, object]: ...
+
+
 def create_server(
-    get_digest: Callable[[str], dict[str, object]], account_fingerprint: Callable[[], str]
+    get_digest: Callable[[str], dict[str, object]],
+    account_fingerprint: Callable[[], str],
+    summarize: SummarizeGmailPort | None = None,
 ) -> FastMCP:
     server = FastMCP("Gmail MCP", json_response=True)
 
@@ -23,9 +32,32 @@ def create_server(
             return _failed("Gmail account is unavailable.", "Reconnect Gmail and retry.")
 
     @server.tool()
-    def summarize_gmail() -> dict[str, object]:
-        """Reserved for the confirmed ad-hoc analysis workflow."""
-        return _failed("Ad-hoc analysis is not available yet.", "Use a later version of this tool.")
+    def summarize_gmail(
+        query: str | None = None,
+        preview_token: str | None = None,
+        confirm: bool = False,
+        confirmation_token: str | None = None,
+    ) -> dict[str, object]:
+        """Preview, confirm, then summarize a one-off Gmail scope."""
+        if summarize is None:
+            return _failed(
+                "Ad-hoc analysis is not available yet.", "Use a later version of this tool."
+            )
+        try:
+            if confirmation_token is not None and not confirmation_token:
+                return _failed(
+                    "A valid confirmation token is required.",
+                    "Refresh the preview and confirm it again.",
+                )
+            if confirmation_token is not None and not any((query, preview_token, confirm)):
+                return summarize.execute(confirmation_token)
+            if preview_token and confirm and not any((query, confirmation_token)):
+                return summarize.confirm(preview_token)
+            if not any((preview_token, confirmation_token, confirm)):
+                return summarize.preview(query)
+        except Exception:
+            return _failed("Ad-hoc analysis is unavailable.", "Refresh the preview and retry.")
+        return _failed("Invalid confirmation request.", "Refresh the preview and confirm it again.")
 
     @server.tool()
     def compare_summaries() -> dict[str, object]:
