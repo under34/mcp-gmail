@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gmail_mcp.domain.thread_summary import ThreadSummary
+from gmail_mcp.domain.thread_summary import ThreadSummary, thread_summary_from_payload
 
 
 def test_thread_summary_is_validated_and_has_a_gmail_source_link() -> None:
@@ -31,3 +31,24 @@ def test_thread_summary_rejects_unsupported_schema_or_status(field, value, messa
 def test_thread_summary_requires_an_explicit_actions_tuple() -> None:
     with pytest.raises(ValueError, match="tuple"):
         ThreadSummary("account", "thread", "Krótko.", "niski", [], "openai")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"summary": None, "priority": "niski", "actions": []},
+        {"summary": "Krótko.", "priority": "niski"},
+        {"summary": "Krótko.", "priority": "niski", "actions": "zadzwoń"},
+        {"summary": "Krótko.", "priority": "niski", "actions": [], "extra": True},
+    ],
+)
+def test_provider_payload_requires_the_exact_schema(payload) -> None:
+    with pytest.raises(ValueError, match="schema"):
+        thread_summary_from_payload(
+            payload, account_fingerprint="account", thread_id="thread", provider="openai"
+        )
+
+
+def test_thread_summary_rejects_punctuation_only_summary() -> None:
+    with pytest.raises(ValueError, match="three"):
+        ThreadSummary("account", "thread", "...", "niski", (), "openai")

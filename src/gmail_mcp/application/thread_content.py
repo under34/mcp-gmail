@@ -8,7 +8,8 @@ def sanitize_thread_text(text: str) -> str:
     without_signature = re.split(r"\n--\s*\n", text, maxsplit=1)[0]
     lines = [line for line in without_signature.splitlines() if not line.lstrip().startswith(">")]
     without_reply = re.split(
-        r"\n(?:On .+ wrote:|-{2,}\s*(?:Forwarded message|Original Message)\s*-{2,}|"
+        r"\n(?:On .+ wrote:|Dnia .+ (?:użytkownik|napisał):|-{2,}\s*"
+        r"(?:Forwarded message|Original Message|Przekazana wiadomość)\s*-{2,}|"
         r"From:\s+.+\n(?:Sent|Date):\s+.+\n(?:To|Subject):)",
         "\n".join(lines),
         maxsplit=1,

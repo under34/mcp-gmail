@@ -4,7 +4,7 @@ import json
 
 from anthropic import Anthropic
 
-from gmail_mcp.domain.thread_summary import ThreadSummary
+from gmail_mcp.domain.thread_summary import ThreadSummary, thread_summary_from_payload
 
 
 class ClaudeSummaryProviderAdapter:
@@ -20,5 +20,9 @@ class ClaudeSummaryProviderAdapter:
         )
         if not response.content or not getattr(response.content[0], "text", None):
             raise ValueError("Provider returned an empty summary.")
-        value = json.loads(response.content[0].text)
-        return ThreadSummary(account_fingerprint, thread_id, str(value["summary"]), str(value["priority"]), tuple(str(item) for item in value.get("actions", [])), "claude")  # noqa: E501
+        return thread_summary_from_payload(
+            json.loads(response.content[0].text),
+            account_fingerprint=account_fingerprint,
+            thread_id=thread_id,
+            provider="claude",
+        )

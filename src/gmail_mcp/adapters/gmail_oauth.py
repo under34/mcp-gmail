@@ -203,8 +203,11 @@ class GmailOAuthAdapter:
         messages = thread.get("messages", [])
         if not messages or str(messages[-1].get("id")) != candidate.latest_message_id:
             raise GmailCandidateError("Gmail thread changed before analysis.")
-        text = "\n".join(self._plain_text(message.get("payload", {})) for message in messages)
-        cleaned = sanitize_thread_text(text)
+        cleaned = "\n".join(
+            text
+            for message in messages
+            if (text := sanitize_thread_text(self._plain_text(message.get("payload", {}))))
+        )
         if not cleaned:
             raise GmailCandidateError("Gmail thread has no analyzable text.")
         return cleaned

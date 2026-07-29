@@ -4,6 +4,8 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 
+import pytest
+
 from gmail_mcp.adapters.sqlite_analysis_state import SqliteAnalysisStateAdapter
 from gmail_mcp.application.analysis_state import AnalysisStateError, FinishAnalysis, PlanAnalysis
 from gmail_mcp.domain.analysis_state import ThreadCandidate
@@ -39,9 +41,10 @@ def test_empty_plan_is_immediately_complete(tmp_path) -> None:
 def test_sqlite_persists_validated_summary_without_thread_body(tmp_path) -> None:
     database = tmp_path / "state.sqlite3"
     state = SqliteAnalysisStateAdapter(database)
+    run = state.plan("account", [_candidate()], filter_hash="filter")
     summary = ThreadSummary("account", "thread", "Krótko.", "niski", (), "openai")
 
-    state.save(summary, run_id="run", input_hash=sha256(b"sanitized input").hexdigest())
+    state.save(summary, run_id=run.run_id, input_hash=sha256(b"sanitized input").hexdigest())
 
     with sqlite3.connect(database) as connection:
         row = connection.execute(
@@ -81,6 +84,19 @@ def test_sqlite_replaces_legacy_summary_rows_without_required_provenance(tmp_pat
         assert connection.execute("SELECT COUNT(*) FROM thread_summary").fetchone() == (0,)
         columns = {row[1] for row in connection.execute("PRAGMA table_info(thread_summary)")}
     assert {"input_hash", "source_link", "disclaimer"}.issubset(columns)
+
+
+def test_sqlite_rejects_a_summary_after_its_run_is_finished(tmp_path) -> None:
+    state = SqliteAnalysisStateAdapter(tmp_path / "state.sqlite3")
+    run = state.plan("account", [_candidate()], filter_hash="filter")
+    state.finish(run, "failed", reason="provider unavailable")
+
+    with pytest.raises(AnalysisStateError, match="no longer active"):
+        state.save(
+            ThreadSummary("account", "thread", "Krótko.", "niski", (), "openai"),
+            run_id=run.run_id,
+            input_hash=sha256(b"sanitized input").hexdigest(),
+        )
 
 
 def test_expired_running_run_releases_its_claim_before_next_plan(tmp_path) -> None:

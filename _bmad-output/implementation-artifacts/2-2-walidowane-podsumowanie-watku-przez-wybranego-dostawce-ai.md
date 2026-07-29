@@ -97,3 +97,13 @@ so that szybko rozpoznaję priorytet oraz działania bez ręcznego czytania cał
 
 - Covers persisted provenance, disclaimer, and safe handling of legacy SQLite rows.
   [`test_sqlite_analysis_state.py:39`](../../tests/unit/test_sqlite_analysis_state.py#L39)
+
+### Review Findings
+
+- [x] [Review][Decision] Reset legacy SQLite summaries during migration — approved for pre-release local data because missing provenance cannot be reconstructed safely.
+- [x] [Review][Patch] Sanitize each Gmail message independently and support common Polish reply headers [src/gmail_mcp/adapters/gmail_oauth.py:206]
+- [x] [Review][Patch] Strictly validate JSON returned by OpenAI and Claude before constructing `ThreadSummary` [src/gmail_mcp/adapters/openai_summary.py:29]
+- [x] [Review][Patch] Make the mandatory AI-fallibility disclaimer non-overridable [src/gmail_mcp/domain/thread_summary.py:21]
+- [x] [Review][Patch] Reject persistence for expired or no-longer-claimed analysis runs [src/gmail_mcp/adapters/sqlite_analysis_state.py:70]
+- [x] [Review][Patch] Rebuild the approved-reset legacy schema atomically [src/gmail_mcp/adapters/sqlite_analysis_state.py:105]
+- [x] [Review][Defer] Compose the analysis use case into a production scheduler entry point [src/gmail_mcp/bootstrap/cli.py:21] — deferred, belongs to Story 2.3 local scheduler.

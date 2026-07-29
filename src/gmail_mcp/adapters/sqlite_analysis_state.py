@@ -25,6 +25,7 @@ class SqliteAnalysisStateAdapter:
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS thread_state (
                     account TEXT NOT NULL, thread_id TEXT NOT NULL,
@@ -66,6 +67,7 @@ class SqliteAnalysisStateAdapter:
                     PRIMARY KEY (account, thread_id, run_id))"""
             )
             self._migrate_thread_summary(connection)
+            connection.execute("COMMIT")
 
     def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
         if len(input_hash) != 64 or any(
@@ -75,6 +77,18 @@ class SqliteAnalysisStateAdapter:
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                active_run = connection.execute(
+                    "SELECT 1 FROM analysis_run WHERE run_id = ? AND account = ? "
+                    "AND status = 'running'",
+                    (run_id, summary.account_fingerprint),
+                ).fetchone()
+                active_claim = connection.execute(
+                    "SELECT 1 FROM analysis_claim WHERE account = ? AND thread_id = ? "
+                    "AND run_id = ?",
+                    (summary.account_fingerprint, summary.thread_id, run_id),
+                ).fetchone()
+                if active_run is None or active_claim is None:
+                    raise AnalysisStateError("Analysis run is no longer active.")
                 connection.execute(
                     "INSERT INTO thread_summary("
                     "account, thread_id, run_id, input_hash, schema_version, summary, priority, "
