@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gmail_mcp.application.analysis_state import AnalysisStateError
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
+from gmail_mcp.domain.digest import Digest
 from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
@@ -66,8 +67,84 @@ class SqliteAnalysisStateAdapter:
                     created_at TEXT NOT NULL,
                     PRIMARY KEY (account, thread_id, run_id))"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS digest (
+                    run_id TEXT PRIMARY KEY, account TEXT NOT NULL, status TEXT NOT NULL,
+                    generated_at TEXT NOT NULL, covered_from TEXT, covered_to TEXT,
+                    matching_thread_count INTEGER NOT NULL, provider TEXT, reason TEXT,
+                    next_action TEXT)"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS digest_item (
+                    run_id TEXT NOT NULL, position INTEGER NOT NULL, thread_id TEXT NOT NULL,
+                    source_link TEXT NOT NULL, inclusion_reason TEXT NOT NULL,
+                    PRIMARY KEY (run_id, position))"""
+            )
             self._migrate_thread_summary(connection)
             connection.execute("COMMIT")
+
+    def save_digest(self, digest: Digest) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "INSERT INTO digest(run_id, account, status, generated_at, covered_from, "
+                    "covered_to, matching_thread_count, provider, reason, next_action) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        digest.run_id,
+                        digest.account_fingerprint,
+                        digest.status,
+                        digest.generated_at,
+                        digest.covered_from,
+                        digest.covered_to,
+                        digest.matching_thread_count,
+                        digest.provider,
+                        digest.reason,
+                        digest.next_action,
+                    ),
+                )
+                connection.executemany(
+                    "INSERT INTO digest_item(run_id, position, thread_id, source_link, "
+                    "inclusion_reason) VALUES (?, ?, ?, ?, ?)",
+                    [
+                        (digest.run_id, position, item.thread_id, item.summary.source_link,
+                         item.inclusion_reason)
+                        for position, item in enumerate(digest.items)
+                    ],
+                )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local digest state is unavailable.") from error
+
+    def summaries_for_run(self, run_id: str) -> tuple[ThreadSummary, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT account, thread_id, summary, priority, actions_json, provider "
+                "FROM thread_summary WHERE run_id = ? ORDER BY created_at, thread_id",
+                (run_id,),
+            ).fetchall()
+        return tuple(
+            ThreadSummary(
+                str(row[0]), str(row[1]), str(row[2]), str(row[3]),
+                tuple(json.loads(str(row[4]))), str(row[5])
+            )
+            for row in rows
+        )
+
+    def latest_digest(self, account_fingerprint: str) -> Digest | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT run_id, account, status, generated_at, covered_from, covered_to, "
+                "matching_thread_count, provider, reason, next_action FROM digest "
+                "WHERE account = ? ORDER BY generated_at DESC LIMIT 1",
+                (account_fingerprint,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Digest(
+            str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], row[5],
+            int(row[6]), (), row[7], row[8], row[9]
+        )
 
     def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
         if len(input_hash) != 64 or any(

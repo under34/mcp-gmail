@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from gmail_mcp.adapters.active_filter_repository import ActiveFilterRepositoryAdapter
 from gmail_mcp.adapters.gmail_oauth import GmailOAuthAdapter
+from gmail_mcp.adapters.sqlite_analysis_state import SqliteAnalysisStateAdapter
+from gmail_mcp.application.analysis_state import FinishAnalysis, PlanActiveFilterAnalysis
+from gmail_mcp.application.digest import RunDailyDigest
 from gmail_mcp.application.gmail_connection import (
     ConnectGmailAccount,
     DisconnectGmailAccount,
     RequireGmailConnection,
 )
 from gmail_mcp.application.gmail_filter import PreviewGmailFilter, SaveActiveGmailFilter
+from gmail_mcp.application.thread_summary import SummarizeAnalysisRun
 from gmail_mcp.bootstrap.settings import (
     ConfigurationError,
     load_gmail_settings,
     load_provider_status,
+    load_settings,
 )
+from gmail_mcp.bootstrap.summary_provider import create_summary_provider
+from gmail_mcp.domain.digest import Digest
 from gmail_mcp.domain.gmail_filter import DEFAULT_GMAIL_QUERY
 
 
@@ -25,12 +35,62 @@ def main() -> int:
         choices=(
             "connect-gmail", "disconnect-gmail", "gmail-status", "preview-gmail-filter",
             "set-gmail-filter", "gmail-filter-status", "ai-provider-status",
+            "run-daily-digest",
         ),
     )
     parser.add_argument("--query")
     parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--scheduled", action="store_true")
     arguments = parser.parse_args()
     command = arguments.command
+    if command == "run-daily-digest":
+        try:
+            settings = load_settings()
+            if arguments.scheduled and not settings.digest_schedule_enabled:
+                print("complete: digest schedule is disabled")
+                return 0
+            if arguments.scheduled:
+                timezone = (
+                    ZoneInfo(settings.digest_schedule_timezone)
+                    if settings.digest_schedule_timezone
+                    else None
+                )
+                now = datetime.now(timezone)
+                if (now.hour, now.minute) != (
+                    settings.digest_schedule_time.hour,
+                    settings.digest_schedule_time.minute,
+                ):
+                    print("complete: digest is not due")
+                    return 0
+            gmail = GmailOAuthAdapter(settings.credentials_path, settings.paths.oauth_token)
+            state = SqliteAnalysisStateAdapter(settings.paths.sqlite)
+            filters = ActiveFilterRepositoryAdapter(settings.paths.filters)
+            plan = PlanActiveFilterAnalysis(gmail, filters, state)
+            summarize = SummarizeAnalysisRun(
+                gmail, create_summary_provider(settings), state, FinishAnalysis(state)
+            )
+            digest = RunDailyDigest(plan, summarize, state, settings.ai_provider).execute()
+        except ConfigurationError as error:
+            try:
+                fallback = load_gmail_settings(require_credentials=False)
+                SqliteAnalysisStateAdapter(fallback.paths.sqlite).save_digest(
+                    Digest(
+                        str(uuid4()), "", "failed", datetime.now().astimezone().isoformat(),
+                        None, None, 0, (), reason="Digest configuration is unavailable.",
+                        next_action="Configure the selected provider and retry.",
+                    )
+                )
+            except Exception:
+                pass
+            print(f"failed: {error}")
+            return 1
+        except Exception:
+            print("failed: Daily digest is unavailable. Check Gmail and provider configuration.")
+            return 1
+        print(
+            f"{digest.status}: threads={digest.matching_thread_count} {digest.reason or ''}".strip()
+        )
+        return 1 if digest.status == "failed" else 0
     if command == "ai-provider-status":
         try:
             status = load_provider_status()

@@ -9,6 +9,7 @@ import pytest
 from gmail_mcp.adapters.sqlite_analysis_state import SqliteAnalysisStateAdapter
 from gmail_mcp.application.analysis_state import AnalysisStateError, FinishAnalysis, PlanAnalysis
 from gmail_mcp.domain.analysis_state import ThreadCandidate
+from gmail_mcp.domain.digest import Digest
 from gmail_mcp.domain.thread_summary import ThreadSummary
 
 
@@ -84,6 +85,24 @@ def test_sqlite_replaces_legacy_summary_rows_without_required_provenance(tmp_pat
         assert connection.execute("SELECT COUNT(*) FROM thread_summary").fetchone() == (0,)
         columns = {row[1] for row in connection.execute("PRAGMA table_info(thread_summary)")}
     assert {"input_hash", "source_link", "disclaimer"}.issubset(columns)
+
+
+def test_sqlite_persists_digest_metadata_without_a_thread_body(tmp_path) -> None:
+    database = tmp_path / "state.sqlite3"
+    state = SqliteAnalysisStateAdapter(database)
+    state.save_digest(
+        Digest("run", "account", "failed", "2026-07-29T08:00:00+00:00", None, None, 0, (),
+               provider="openai", reason="Gmail is unavailable.", next_action="Reconnect Gmail.")
+    )
+
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT status, provider, reason, next_action FROM digest"
+        ).fetchone()
+        columns = {item[1] for item in connection.execute("PRAGMA table_info(digest)")}
+    assert row == ("failed", "openai", "Gmail is unavailable.", "Reconnect Gmail.")
+    assert "body" not in columns
+    assert state.latest_digest("account").run_id == "run"  # type: ignore[union-attr]
 
 
 def test_sqlite_rejects_a_summary_after_its_run_is_finished(tmp_path) -> None:

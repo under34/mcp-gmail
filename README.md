@@ -79,6 +79,9 @@ uv run gmail-mcp set-gmail-filter --query 'label:work' --confirm
 # Pokazuje filtr aktywny dla bieżącego konta i stan lokalnego dostawcy AI.
 uv run gmail-mcp gmail-filter-status
 uv run gmail-mcp ai-provider-status
+
+# Uruchamia ten sam Digest, którego wywołuje lokalny cron.
+uv run gmail-mcp run-daily-digest
 ```
 
 Po poprawnym połączeniu pierwsze polecenie wyświetli adres połączonego konta.
@@ -95,9 +98,19 @@ oryginalny plik credentials nie jest już dostępny.
 | `AI_PROVIDER` | Przyszły dostawca podsumowań: `openai` (domyślnie) lub `claude`. |
 | `OPENAI_API_KEY` | Klucz wymagany później, gdy wybrano `openai`. |
 | `ANTHROPIC_API_KEY` | Klucz wymagany później, gdy wybrano `claude`. |
+| `DIGEST_SCHEDULE_ENABLED` | `true` (domyślnie) albo `false`; wyłącza cronowy Digest bez zmiany danych. |
+| `DIGEST_SCHEDULE_TIME` | Godzina lokalnego crona w formacie `HH:MM`; domyślnie `08:00`. |
+| `DIGEST_SCHEDULE_TIMEZONE` | Opcjonalna strefa IANA, np. `Europe/Warsaw`, do dokumentacji i konfiguracji crona. |
 
 Zmienne procesu mają pierwszeństwo przed `.env`. OAuth nie wymaga żadnego klucza
 OpenAI ani Anthropic.
+
+## Lokalny harmonogram
+
+Aplikacja nie zmienia systemowego crontaba. Dodaj lokalnie wpis uruchamiający
+CLI zgodnie z `DIGEST_SCHEDULE_TIME`, np. dla 08:00: `0 8 * * * cd /ścieżka/do/mcp-gmail && uv run gmail-mcp run-daily-digest --scheduled`.
+Cron powinien mieć dostęp do tych samych zmiennych środowiskowych lub lokalnego
+pliku `.env`; zmiana dostawcy albo harmonogramu działa przy następnym uruchomieniu.
 
 ## Bezpieczeństwo i prywatność
 
