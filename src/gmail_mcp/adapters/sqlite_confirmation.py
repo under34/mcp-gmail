@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
 from datetime import datetime
@@ -18,6 +19,7 @@ class SqliteConfirmationAdapter:
         self._path = path
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS analysis_confirmation (
                     token_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, account TEXT NOT NULL,
@@ -35,6 +37,11 @@ class SqliteConfirmationAdapter:
                     "ALTER TABLE analysis_confirmation ADD COLUMN "
                     "snapshot_hash TEXT NOT NULL DEFAULT ''"
                 )
+            connection.execute("UPDATE analysis_confirmation SET query = '' WHERE query <> ''")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS account_execution_lease (
+                    account TEXT PRIMARY KEY, token TEXT NOT NULL, owner_pid INTEGER NOT NULL)"""
+            )
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._path, isolation_level=None)
@@ -52,6 +59,41 @@ class SqliteConfirmationAdapter:
 
     def save_confirmation(self, confirmation: AnalysisConfirmation) -> str:
         return self._save("confirmation", confirmation, input_hash=confirmation.input_hash)
+
+    def acquire_execution_lease(self, account_fingerprint: str) -> str | None:
+        token = secrets.token_urlsafe(32)
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if self._deletion_in_progress(connection, account_fingerprint):
+                    return None
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM account_execution_lease WHERE account = ?",
+                        (account_fingerprint,),
+                    ).fetchone()
+                    is not None
+                ):
+                    return None
+                connection.execute(
+                    "INSERT INTO account_execution_lease(account, token, owner_pid) "
+                    "VALUES (?, ?, ?)",
+                    (account_fingerprint, token, os.getpid()),
+                )
+            return token
+        except sqlite3.Error as error:
+            raise RuntimeError("Local confirmation state is unavailable.") from error
+
+    def release_execution_lease(self, account_fingerprint: str, token: str) -> None:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "DELETE FROM account_execution_lease WHERE account = ? AND token = ?",
+                    (account_fingerprint, token),
+                )
+        except sqlite3.Error as error:
+            raise RuntimeError("Local confirmation state is unavailable.") from error
 
     def consume_confirmation(
         self, token: str, *, account_fingerprint: str, now: datetime
@@ -83,6 +125,8 @@ class SqliteConfirmationAdapter:
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._deletion_in_progress(connection, value.account_fingerprint):
+                    raise RuntimeError("Local confirmation state is unavailable.")
                 connection.execute(
                     "DELETE FROM analysis_confirmation WHERE expires_at <= ?",
                     (datetime.now(value.expires_at.tzinfo).isoformat(),),
@@ -98,7 +142,7 @@ class SqliteConfirmationAdapter:
                         kind,
                         value.account_fingerprint,
                         value.operation,
-                        value.query,
+                        "",
                         value.filter_hash,
                         candidates,
                         value.snapshot_hash,
@@ -117,6 +161,8 @@ class SqliteConfirmationAdapter:
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._deletion_in_progress(connection, account):
+                    return None
                 row = connection.execute(
                     "SELECT operation, query, filter_hash, candidates_json, snapshot_hash, "
                     "provider, "
@@ -153,6 +199,23 @@ class SqliteConfirmationAdapter:
             str(row[5]),
             row[6],
             str(row[7]),
+        )
+
+    @staticmethod
+    def _deletion_in_progress(connection: sqlite3.Connection, account: str) -> bool:
+        if (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'account_deletion_gate'"
+            ).fetchone()
+            is None
+        ):
+            return False
+        return (
+            connection.execute(
+                "SELECT 1 FROM account_deletion_gate WHERE account = ?", (account,)
+            ).fetchone()
+            is not None
         )
 
 

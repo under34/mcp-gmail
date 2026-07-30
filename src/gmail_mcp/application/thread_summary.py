@@ -36,7 +36,13 @@ class SummarizeAnalysisRun:
         self._summaries = summaries
         self._finish = finish
 
-    def execute(self, run: AnalysisRun, *, texts: Mapping[str, str] | None = None) -> AnalysisRun:
+    def execute(
+        self,
+        run: AnalysisRun,
+        *,
+        texts: Mapping[str, str] | None = None,
+        expected_provider: str | None = None,
+    ) -> AnalysisRun:
         successful: set[str] = set()
         for candidate in run.candidates:
             try:
@@ -52,6 +58,7 @@ class SummarizeAnalysisRun:
                 )
                 if (
                     summary.provider not in {"openai", "claude"}
+                    or (expected_provider is not None and summary.provider != expected_provider)
                     or summary.account_fingerprint != candidate.account_fingerprint
                     or summary.thread_id != candidate.thread_id
                     or summary.schema_version != 1

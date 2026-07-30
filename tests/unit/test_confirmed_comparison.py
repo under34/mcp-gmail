@@ -49,6 +49,7 @@ class Filters:
 class Tokens:
     previews: dict[str, AnalysisPreview] = field(default_factory=dict)
     confirmations: dict[str, AnalysisConfirmation] = field(default_factory=dict)
+    lease: str | None = None
 
     def save_preview(self, value):
         self.previews["p"] = value
@@ -67,6 +68,16 @@ class Tokens:
     def save_confirmation(self, value):
         self.confirmations["c"] = value
         return "c"
+
+    def acquire_execution_lease(self, account_fingerprint):
+        if self.lease is not None:
+            return None
+        self.lease = "lease"
+        return self.lease
+
+    def release_execution_lease(self, account_fingerprint, token):
+        if self.lease == token:
+            self.lease = None
 
     def consume_confirmation(self, token, *, account_fingerprint, now):
         value = self.confirmations.get(token)
@@ -207,6 +218,28 @@ def test_removed_candidate_after_confirmation_fails_before_second_body_access() 
 
     assert service.execute(confirmation["confirmation_token"])["status"] == "failed"
     assert gmail.text_calls == 1
+    assert openai.calls == claude.calls == []
+
+
+def test_candidate_removed_during_body_fetch_never_reaches_providers() -> None:
+    account = _account()
+
+    @dataclass
+    class RemovingGmail(Gmail):
+        def fetch_clean_text(self, candidate):
+            text = super().fetch_clean_text(candidate)
+            if self.text_calls == 2:
+                self.candidates = []
+            return text
+
+    candidate = ThreadCandidate(account, "thread", "m", "2026-07-29T00:00:00+00:00", "x")
+    gmail = RemovingGmail([candidate], {"thread": "same text"})
+    openai, claude = Provider("openai"), Provider("claude")
+    service = _service(gmail, openai, claude)
+    preview = service.preview("thread")["data"]
+    confirmation = service.confirm(preview["preview_token"])["data"]
+
+    assert service.execute(confirmation["confirmation_token"])["status"] == "failed"
     assert openai.calls == claude.calls == []
 
 

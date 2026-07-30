@@ -80,6 +80,9 @@ async def _assert_confirmed_protocol() -> None:
     assert (await server.call_tool("summarize_gmail", {"confirmation_token": ""}))[1][
         "status"
     ] == "failed"
+    assert (await server.call_tool("summarize_gmail", {"preview_token": ""}))[1][
+        "status"
+    ] == "failed"
 
 
 def test_fastmcp_server_routes_three_phase_confirmed_analysis() -> None:

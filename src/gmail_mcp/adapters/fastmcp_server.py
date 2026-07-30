@@ -51,6 +51,11 @@ def create_server(
                 "Ad-hoc analysis is not available yet.", "Use a later version of this tool."
             )
         try:
+            if preview_token is not None and not preview_token:
+                return _failed(
+                    "A valid preview token is required.",
+                    "Refresh the preview and confirm it again.",
+                )
             if confirmation_token is not None and not confirmation_token:
                 return _failed(
                     "A valid confirmation token is required.",

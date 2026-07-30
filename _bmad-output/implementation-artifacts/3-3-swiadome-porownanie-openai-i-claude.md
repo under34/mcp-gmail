@@ -61,6 +61,15 @@ Nieobsługiwane kombinacje parametrów, w tym pusty token, są `failed`; nie mog
 - [x] [Review][Patch] Reject an empty preview token before phase routing [src/gmail_mcp/adapters/fastmcp_server.py:80] — fixed: empty preview tokens fail before routing or side effects (MCP contract).
 - [x] [Review][Patch] Revalidate current candidate membership before body access [src/gmail_mcp/application/confirmed_comparison.py:128] — fixed: confirmation and execution rediscover the candidate under the unchanged active filter before body access (AC 1 and AC 3).
 - [x] [Review][Patch] Keep malformed provider output inside per-provider isolation [src/gmail_mcp/application/confirmed_comparison.py:236] — fixed: validation and serialization failures become an invalid-summary result and do not block the other provider (AC 4–5).
+- [x] [Review][Patch] Blokuj zapisywanie i konsumpcję potwierdzeń podczas aktywnej bramki usuwania konta [src/gmail_mcp/adapters/sqlite_confirmation.py:84] — poprawiono: porównanie nie może utworzyć ani zużyć tokenu w czasie usuwania danych konta.
+- [x] [Review][Patch] Ponownie potwierdź członkostwo Wątku w Aktywnym Filtrze po pobraniu body, przed wywołaniem dostawców [src/gmail_mcp/application/confirmed_comparison.py:176] — poprawiono: zmiana filtra lub przynależności kończy wykonanie przed wywołaniami AI.
+- [x] [Review][Decision] Ustal semantykę usuwania danych wobec potwierdzonego wykonania będącego już w toku — rozstrzygnięto: usuwanie blokuje nowe operacje i czeka na zwolnienie lease przez trwające wykonanie przed czyszczeniem danych.
+- [x] [Review][Patch] Dodaj lease aktywnego wykonania konta, które blokuje rozpoczęcie usuwania do czasu zakończenia pobrania body i porównania [src/gmail_mcp/application/confirmed_comparison.py:160] — poprawiono: bramka czeka na lease, a wykonanie nabywa go przed odczytem body i zwalnia po porównaniu.
+- [x] [Review][Patch] Traktuj klucze API z samymi białymi znakami jako brak konfiguracji porównania [src/gmail_mcp/bootstrap/summary_provider.py:22] — poprawiono: oba klucze są walidowane po `strip()` przed utworzeniem dostawców.
+- [x] [Review][Decision] Ustal limit oczekiwania na aktywny lease podczas usuwania danych — rozstrzygnięto: maksymalnie 60 sekund, następnie bezpieczny błąd z instrukcją ponowienia usuwania.
+- [x] [Review][Patch] Zakończ usuwanie bezpiecznym błędem po 60 sekundach oczekiwania na lease [src/gmail_mcp/adapters/sqlite_analysis_state.py:303] — poprawiono: bramka jest odnawiana podczas oczekiwania, a limit zwraca bezpieczny błąd.
+- [x] [Review][Patch] Obejmij lease także fazę potwierdzenia przed pobraniem body [src/gmail_mcp/application/confirmed_comparison.py:119] — poprawiono: lease obejmuje pobranie body i zapis tokenu potwierdzenia.
+- [x] [Review][Patch] Odnawiaj bramkę usuwania podczas oczekiwania na lease [src/gmail_mcp/adapters/sqlite_analysis_state.py:303] — poprawiono: bramka jest odnawiana podczas oczekiwania na aktywne wykonanie.
 
 ## Dev Notes
 
