@@ -54,8 +54,7 @@ class SqliteAnalysisStateAdapter:
                     PRIMARY KEY (run_id, thread_id))"""
             )
             columns = {
-                row[1]
-                for row in connection.execute("PRAGMA table_info(analysis_run_candidate)")
+                row[1] for row in connection.execute("PRAGMA table_info(analysis_run_candidate)")
             }
             if "inclusion_reason" not in columns:
                 connection.execute(
@@ -104,10 +103,14 @@ class SqliteAnalysisStateAdapter:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 self._recover_expired_deletion_gates(connection)
-                if digest.account_fingerprint and connection.execute(
-                    "SELECT 1 FROM account_deletion_gate WHERE account = ?",
-                    (digest.account_fingerprint,),
-                ).fetchone() is not None:
+                if (
+                    digest.account_fingerprint
+                    and connection.execute(
+                        "SELECT 1 FROM account_deletion_gate WHERE account = ?",
+                        (digest.account_fingerprint,),
+                    ).fetchone()
+                    is not None
+                ):
                     raise AnalysisStateError("Local data deletion is in progress.")
                 connection.execute(
                     "INSERT INTO digest(run_id, account, status, generated_at, covered_from, "
@@ -130,8 +133,13 @@ class SqliteAnalysisStateAdapter:
                     "INSERT INTO digest_item(run_id, position, thread_id, source_link, "
                     "inclusion_reason) VALUES (?, ?, ?, ?, ?)",
                     [
-                        (digest.run_id, position, item.thread_id, item.summary.source_link,
-                         item.inclusion_reason)
+                        (
+                            digest.run_id,
+                            position,
+                            item.thread_id,
+                            item.summary.source_link,
+                            item.inclusion_reason,
+                        )
                         for position, item in enumerate(digest.items)
                     ],
                 )
@@ -147,8 +155,12 @@ class SqliteAnalysisStateAdapter:
             ).fetchall()
         return tuple(
             ThreadSummary(
-                str(row[0]), str(row[1]), str(row[2]), str(row[3]),
-                tuple(json.loads(str(row[4]))), str(row[5])
+                str(row[0]),
+                str(row[1]),
+                str(row[2]),
+                str(row[3]),
+                tuple(json.loads(str(row[4]))),
+                str(row[5]),
             )
             for row in rows
         )
@@ -174,8 +186,12 @@ class SqliteAnalysisStateAdapter:
         items = tuple(
             DigestItem(
                 ThreadSummary(
-                    account_fingerprint, str(item[0]), str(item[1]), str(item[2]),
-                    tuple(json.loads(str(item[3]))), str(item[4])
+                    account_fingerprint,
+                    str(item[0]),
+                    str(item[1]),
+                    str(item[2]),
+                    tuple(json.loads(str(item[3]))),
+                    str(item[4]),
                 ),
                 str(item[5]),
             )
@@ -189,8 +205,17 @@ class SqliteAnalysisStateAdapter:
             reason = "Local digest items are incomplete."
             next_action = "Run the daily digest again."
         return Digest(
-            str(row[0]), str(row[1]), status, str(row[3]), row[4], row[5],
-            int(row[6]), items, row[7], reason, next_action
+            str(row[0]),
+            str(row[1]),
+            status,
+            str(row[3]),
+            row[4],
+            row[5],
+            int(row[6]),
+            items,
+            row[7],
+            reason,
+            next_action,
         )
 
     def purge_expired_results(self, now: datetime) -> LocalDataResult:
@@ -259,9 +284,13 @@ class SqliteAnalysisStateAdapter:
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                if connection.execute(
-                    "SELECT 1 FROM account_deletion_gate WHERE account = ?", (account_fingerprint,)
-                ).fetchone() is None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM account_deletion_gate WHERE account = ?",
+                        (account_fingerprint,),
+                    ).fetchone()
+                    is None
+                ):
                     raise AnalysisStateError("Local data deletion is unavailable.")
                 run_ids = "SELECT run_id FROM analysis_run WHERE account = ?"
                 deleted_digests = connection.execute(
@@ -298,6 +327,17 @@ class SqliteAnalysisStateAdapter:
                 connection.execute(
                     "DELETE FROM filter_membership WHERE account = ?", (account_fingerprint,)
                 )
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                        "AND name = 'analysis_confirmation'"
+                    ).fetchone()
+                    is not None
+                ):
+                    connection.execute(
+                        "DELETE FROM analysis_confirmation WHERE account = ?",
+                        (account_fingerprint,),
+                    )
             return LocalDataResult(
                 "complete", int(deleted_digests), int(deleted_summaries), int(deleted_runs)
             )
@@ -318,26 +358,38 @@ class SqliteAnalysisStateAdapter:
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                if connection.execute(
-                    "UPDATE account_deletion_gate SET expires_at = ? WHERE account = ?",
-                    (
-                        (datetime.now(UTC) + self._DELETION_LEASE_DURATION).isoformat(),
-                        account_fingerprint,
-                    ),
-                ).rowcount != 1:
+                if (
+                    connection.execute(
+                        "UPDATE account_deletion_gate SET expires_at = ? WHERE account = ?",
+                        (
+                            (datetime.now(UTC) + self._DELETION_LEASE_DURATION).isoformat(),
+                            account_fingerprint,
+                        ),
+                    ).rowcount
+                    != 1
+                ):
                     raise AnalysisStateError("Local data deletion is unavailable.")
         except sqlite3.Error as error:
             raise AnalysisStateError("Local data deletion is unavailable.") from error
 
     def local_account_fingerprints(self) -> tuple[str, ...]:
         with self._connect() as connection:
-            rows = connection.execute(
+            query = (
                 "SELECT account FROM analysis_run WHERE account <> '' UNION "
                 "SELECT account FROM thread_summary WHERE account <> '' UNION "
                 "SELECT account FROM digest WHERE account <> '' UNION "
                 "SELECT account FROM thread_state WHERE account <> '' UNION "
                 "SELECT account FROM filter_membership WHERE account <> ''"
-            ).fetchall()
+            )
+            if (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'analysis_confirmation'"
+                ).fetchone()
+                is not None
+            ):
+                query += " UNION SELECT account FROM analysis_confirmation WHERE account <> ''"
+            rows = connection.execute(query).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     def save(self, summary: ThreadSummary, *, run_id: str, input_hash: str) -> None:
@@ -363,8 +415,8 @@ class SqliteAnalysisStateAdapter:
                 connection.execute(
                     "INSERT INTO thread_summary("
                     "account, thread_id, run_id, input_hash, schema_version, summary, priority, "
-                        "actions_json, provider, status, reason, source_link, disclaimer, "
-                        "created_at) "
+                    "actions_json, provider, status, reason, source_link, disclaimer, "
+                    "created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(account, thread_id, run_id) DO NOTHING",
                     (
@@ -390,9 +442,7 @@ class SqliteAnalysisStateAdapter:
     @staticmethod
     def _migrate_thread_summary(connection: sqlite3.Connection) -> None:
         """Discard pre-release rows whose provenance cannot be reconstructed safely."""
-        columns = {
-            str(row[1]) for row in connection.execute("PRAGMA table_info(thread_summary)")
-        }
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(thread_summary)")}
         required = {"input_hash", "reason", "source_link", "disclaimer"}
         if not required.issubset(columns):
             connection.execute("DROP TABLE thread_summary")
@@ -420,9 +470,13 @@ class SqliteAnalysisStateAdapter:
                 connection.execute("BEGIN IMMEDIATE")
                 self._recover_expired_runs(connection)
                 self._recover_expired_deletion_gates(connection)
-                if connection.execute(
-                    "SELECT 1 FROM account_deletion_gate WHERE account = ?", (account_fingerprint,)
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM account_deletion_gate WHERE account = ?",
+                        (account_fingerprint,),
+                    ).fetchone()
+                    is not None
+                ):
                     raise AnalysisStateError("Local data deletion is in progress.")
                 self._mark_missing_memberships(
                     connection, account_fingerprint, unique, filter_hash=filter_hash
@@ -449,8 +503,11 @@ class SqliteAnalysisStateAdapter:
                     if active_claim is None and (reanalysis or newly_matching or message_changed):
                         claimed.append(candidate)
                         inclusion_reasons[candidate.thread_id] = (
-                            "reanalysis" if reanalysis else "newly_matching"
-                            if newly_matching else "new_message"
+                            "reanalysis"
+                            if reanalysis
+                            else "newly_matching"
+                            if newly_matching
+                            else "new_message"
                         )
                     connection.execute(
                         "INSERT INTO filter_membership("
@@ -631,8 +688,7 @@ class SqliteAnalysisStateAdapter:
     def _recover_expired_runs(connection: sqlite3.Connection) -> None:
         now = datetime.now(UTC).isoformat()
         expired = connection.execute(
-            "SELECT run_id FROM analysis_run "
-            "WHERE status = 'running' AND lease_expires_at <= ?",
+            "SELECT run_id FROM analysis_run WHERE status = 'running' AND lease_expires_at <= ?",
             (now,),
         ).fetchall()
         for (run_id,) in expired:

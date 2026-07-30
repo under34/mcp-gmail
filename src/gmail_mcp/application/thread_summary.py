@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from typing import Protocol
 
 from gmail_mcp.application.analysis_state import FinishAnalysis
@@ -35,11 +36,15 @@ class SummarizeAnalysisRun:
         self._summaries = summaries
         self._finish = finish
 
-    def execute(self, run: AnalysisRun) -> AnalysisRun:
+    def execute(self, run: AnalysisRun, *, texts: Mapping[str, str] | None = None) -> AnalysisRun:
         successful: set[str] = set()
         for candidate in run.candidates:
             try:
-                text = self._content.fetch_clean_text(candidate)
+                text = (
+                    texts[candidate.thread_id]
+                    if texts is not None
+                    else self._content.fetch_clean_text(candidate)
+                )
                 summary = self._provider.summarize(
                     account_fingerprint=candidate.account_fingerprint,
                     thread_id=candidate.thread_id,
