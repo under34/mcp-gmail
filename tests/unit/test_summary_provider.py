@@ -19,3 +19,10 @@ def test_comparison_requires_both_explicit_provider_keys(tmp_path) -> None:
 
     with pytest.raises(ConfigurationError, match="Both AI providers"):
         create_comparison_providers(settings)
+
+
+def test_comparison_rejects_a_whitespace_only_provider_key(tmp_path) -> None:
+    settings = Settings("openai", "openai-key", "   ", None, get_app_paths(tmp_path))
+
+    with pytest.raises(ConfigurationError, match="Both AI providers"):
+        create_comparison_providers(settings)

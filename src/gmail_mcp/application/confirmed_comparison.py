@@ -43,6 +43,10 @@ class ConfirmationPort(Protocol):
         self, token: str, *, account_fingerprint: str, now: datetime
     ) -> AnalysisConfirmation | None: ...
 
+    def acquire_execution_lease(self, account_fingerprint: str) -> str | None: ...
+
+    def release_execution_lease(self, account_fingerprint: str, token: str) -> None: ...
+
 
 class ProviderPort(Protocol):
     def summarize(
@@ -126,22 +130,22 @@ class ConfirmedComparison:
             ):
                 return _failed("The comparison preview is invalid or expired.", REFRESH)
             if not self._candidate_is_current(
-                account, preview.candidates[0], preview.query, preview.filter_hash
+                account, preview.candidates[0], preview.filter_hash
             ):
                 return _failed("The Gmail thread is no longer in the active filter.", REFRESH)
-            text = self._gmail.fetch_clean_text(preview.candidates[0])
-            if self._account() != account:
-                return _failed("Gmail account changed during confirmation.", REFRESH)
-            confirmation = AnalysisConfirmation(
-                account,
-                OPERATION,
-                preview.query,
-                preview.filter_hash,
-                preview.candidates,
-                PROVIDER_SET,
-                analysis_input_hash((text,)),
-                self._now() + self._ttl,
-            )
+            lease = self._confirmations.acquire_execution_lease(account)
+            if lease is None:
+                return _failed("Gmail data deletion is in progress.", REFRESH)
+            try:
+                text = self._gmail.fetch_clean_text(preview.candidates[0])
+                if self._account() != account:
+                    return _failed("Gmail account changed during confirmation.", REFRESH)
+                confirmation = AnalysisConfirmation(
+                    account, OPERATION, preview.query, preview.filter_hash, preview.candidates,
+                    PROVIDER_SET, analysis_input_hash((text,)), self._now() + self._ttl,
+                )
+            finally:
+                self._confirmations.release_execution_lease(account, lease)
             return _complete(
                 {
                     "phase": "confirmed",
@@ -170,42 +174,53 @@ class ConfirmedComparison:
                 return _failed("The comparison token is invalid or expired.", REFRESH)
             candidate = confirmation.candidates[0]
             if not self._candidate_is_current(
-                account, candidate, confirmation.query, confirmation.filter_hash
+                account, candidate, confirmation.filter_hash
             ):
                 return _failed("The Gmail thread is no longer in the active filter.", REFRESH)
-            text = self._gmail.fetch_clean_text(candidate)
-            if (
-                self._account() != account
-                or analysis_input_hash((text,)) != confirmation.input_hash
-            ):
-                return _failed("The confirmed Gmail input changed before comparison.", REFRESH)
-            results = [
-                _provider_result(
-                    name, self._providers.get(name), account, candidate.thread_id, text
-                )
-                for name in PROVIDERS
-            ]
-            succeeded = sum(result["status"] == "complete" for result in results)
-            data = {
-                "thread_id": candidate.thread_id,
-                "providers": list(PROVIDERS),
-                "results": results,
-            }
-            if succeeded == 2:
-                return _complete(data)
-            if succeeded == 1:
-                return {
-                    "status": "partial",
-                    "data": data,
-                    "reason": "One provider could not complete the comparison.",
-                    "next_action": "Review the provider error and retry with a new confirmation.",
+            lease = self._confirmations.acquire_execution_lease(account)
+            if lease is None:
+                return _failed("Gmail data deletion is in progress.", REFRESH)
+            try:
+                text = self._gmail.fetch_clean_text(candidate)
+                if (
+                    self._account() != account
+                    or analysis_input_hash((text,)) != confirmation.input_hash
+                    or not self._candidate_is_current(account, candidate, confirmation.filter_hash)
+                ):
+                    return _failed("The confirmed Gmail input changed before comparison.", REFRESH)
+                results = [
+                    _provider_result(
+                        name, self._providers.get(name), account, candidate.thread_id, text
+                    )
+                    for name in PROVIDERS
+                ]
+                succeeded = sum(result["status"] == "complete" for result in results)
+                data = {
+                    "thread_id": candidate.thread_id,
+                    "providers": list(PROVIDERS),
+                    "results": results,
                 }
-            return {
-                "status": "failed",
-                "data": data,
-                "reason": "Neither provider could complete the comparison.",
-                "next_action": "Check provider configuration and retry with a new confirmation.",
-            }
+                if succeeded == 2:
+                    return _complete(data)
+                if succeeded == 1:
+                    return {
+                        "status": "partial",
+                        "data": data,
+                        "reason": "One provider could not complete the comparison.",
+                        "next_action": (
+                            "Review the provider error and retry with a new confirmation."
+                        ),
+                    }
+                return {
+                    "status": "failed",
+                    "data": data,
+                    "reason": "Neither provider could complete the comparison.",
+                    "next_action": (
+                        "Check provider configuration and retry with a new confirmation."
+                    ),
+                }
+            finally:
+                self._confirmations.release_execution_lease(account, lease)
         except Exception:
             return _failed("The confirmed Gmail comparison is unavailable.", REFRESH)
 
@@ -213,7 +228,7 @@ class ConfirmedComparison:
         return _fingerprint(self._gmail.current_account_email())
 
     def _candidate_is_current(
-        self, account: str, candidate: ThreadCandidate, query: str, expected_hash: str
+        self, account: str, candidate: ThreadCandidate, expected_hash: str
     ) -> bool:
         email = self._gmail.current_account_email()
         filter_ = self._filters.load(email) or GmailFilter.default()
@@ -221,7 +236,6 @@ class ConfirmedComparison:
         if (
             _fingerprint(email) != account
             or candidate.account_fingerprint != account
-            or filter_.query != query
             or current_hash != expected_hash
         ):
             return False

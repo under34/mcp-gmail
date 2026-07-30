@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from threading import Event, Thread
+from time import sleep
 
 from gmail_mcp.adapters.sqlite_analysis_state import SqliteAnalysisStateAdapter
 from gmail_mcp.adapters.sqlite_confirmation import SqliteConfirmationAdapter
@@ -40,12 +42,13 @@ def test_sqlite_confirmation_is_opaque_single_use_and_stores_only_metadata(tmp_p
     assert replay is None
     with sqlite3.connect(path) as connection:
         row = connection.execute(
-            "SELECT token_hash, candidates_json FROM analysis_confirmation"
+            "SELECT token_hash, query, candidates_json FROM analysis_confirmation"
         ).fetchone()
     assert row is not None
     assert token != row[0]
-    assert "thread" in row[1]
-    assert "Treść wiadomości" not in row[1]
+    assert row[1] == ""
+    assert "thread" in row[2]
+    assert "Treść wiadomości" not in row[2]
 
 
 def test_sqlite_confirmation_rejects_expired_or_other_account(tmp_path) -> None:
@@ -96,3 +99,50 @@ def test_account_deletion_removes_pending_confirmations(tmp_path) -> None:
     with sqlite3.connect(path) as connection:
         count = connection.execute("SELECT COUNT(*) FROM analysis_confirmation").fetchone()[0]
     assert count == 0
+
+
+def test_account_deletion_blocks_confirmation_save_and_consumption(tmp_path) -> None:
+    now = datetime(2026, 7, 29, tzinfo=UTC)
+    path = tmp_path / "state.sqlite3"
+    store = SqliteConfirmationAdapter(path)
+    state = SqliteAnalysisStateAdapter(path)
+    token = store.save_preview(_preview(now))
+    state.begin_account_deletion("account")
+
+    assert store.consume_preview(token, account_fingerprint="account", now=now) is None
+    try:
+        store.save_preview(_preview(now))
+    except RuntimeError as error:
+        assert str(error) == "Local confirmation state is unavailable."
+    else:
+        raise AssertionError("Confirmation save must fail during account deletion.")
+
+
+def test_account_deletion_waits_for_an_active_execution_lease(tmp_path) -> None:
+    path = tmp_path / "state.sqlite3"
+    store = SqliteConfirmationAdapter(path)
+    state = SqliteAnalysisStateAdapter(path)
+    lease = store.acquire_execution_lease("account")
+    assert lease is not None
+    finished = Event()
+
+    def begin_deletion() -> None:
+        state.begin_account_deletion("account")
+        finished.set()
+
+    worker = Thread(target=begin_deletion)
+    worker.start()
+    for _ in range(50):
+        with sqlite3.connect(path) as connection:
+            gate = connection.execute(
+                "SELECT 1 FROM account_deletion_gate WHERE account = 'account'"
+            ).fetchone()
+        if gate is not None:
+            break
+        sleep(0.01)
+    assert gate is not None
+    assert not finished.is_set()
+
+    store.release_execution_lease("account", lease)
+    worker.join(timeout=1)
+    assert finished.is_set()

@@ -57,6 +57,7 @@ class FakeConfirmations:
     previews: dict[str, AnalysisPreview] = field(default_factory=dict)
     confirmations: dict[str, AnalysisConfirmation] = field(default_factory=dict)
     next_id: int = 0
+    lease: str | None = None
 
     def save_preview(self, preview: AnalysisPreview) -> str:
         self.next_id += 1
@@ -81,6 +82,16 @@ class FakeConfirmations:
         token = f"confirm-{self.next_id}"
         self.confirmations[token] = confirmation
         return token
+
+    def acquire_execution_lease(self, account_fingerprint: str) -> str | None:
+        if self.lease is not None:
+            return None
+        self.lease = f"lease-{account_fingerprint}"
+        return self.lease
+
+    def release_execution_lease(self, account_fingerprint: str, token: str) -> None:
+        if self.lease == token:
+            self.lease = None
 
     def consume_confirmation(
         self, token: str, *, account_fingerprint: str, now: datetime
@@ -110,7 +121,7 @@ class FakePlanner:
 class FakeSummarizer:
     calls: int = 0
 
-    def execute(self, run: AnalysisRun, *, texts=None) -> AnalysisRun:
+    def execute(self, run: AnalysisRun, *, texts=None, expected_provider=None) -> AnalysisRun:
         self.calls += 1
         return run.finish("complete")
 
