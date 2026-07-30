@@ -19,6 +19,7 @@ from gmail_mcp.application.gmail_connection import (
 from gmail_mcp.application.gmail_filter import PreviewGmailFilter, SaveActiveGmailFilter
 from gmail_mcp.application.local_data import DeleteLocalData, PurgeExpiredResults
 from gmail_mcp.application.thread_summary import SummarizeAnalysisRun
+from gmail_mcp.bootstrap.logging import configure_logging
 from gmail_mcp.bootstrap.settings import (
     ConfigurationError,
     load_gmail_settings,
@@ -52,6 +53,9 @@ def main() -> int:
     if command == "run-daily-digest":
         try:
             settings = load_settings()
+            configure_logging(
+                secrets=(settings.openai_api_key or "", settings.anthropic_api_key or "")
+            )
             if arguments.scheduled and not settings.digest_schedule_enabled:
                 print("complete: digest schedule is disabled")
                 return 0
@@ -77,7 +81,11 @@ def main() -> int:
             filters = ActiveFilterRepositoryAdapter(settings.paths.filters)
             plan = PlanActiveFilterAnalysis(gmail, filters, state)
             summarize = SummarizeAnalysisRun(
-                gmail, create_summary_provider(settings), state, FinishAnalysis(state)
+                gmail,
+                create_summary_provider(settings),
+                state,
+                FinishAnalysis(state),
+                settings.ai_provider,
             )
             digest = RunDailyDigest(plan, summarize, state, settings.ai_provider).execute()
         except ConfigurationError as error:

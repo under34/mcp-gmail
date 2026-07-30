@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Mapping
 from typing import Protocol
 
 from gmail_mcp.application.analysis_state import FinishAnalysis
 from gmail_mcp.domain.analysis_state import AnalysisRun, ThreadCandidate
 from gmail_mcp.domain.thread_summary import ThreadSummary
+
+
+class SummaryProviderUnavailableError(RuntimeError):
+    """A provider failure affects every remaining request in the current run."""
+
+
+class SummaryProviderAuthenticationError(SummaryProviderUnavailableError):
+    """A provider rejected credentials; continuing would repeat the same request failure."""
 
 
 class ThreadContentPort(Protocol):
@@ -30,11 +39,14 @@ class SummarizeAnalysisRun:
         provider: SummaryProviderPort,
         summaries: ThreadSummaryRepositoryPort,
         finish: FinishAnalysis,
+        provider_name: str = "selected",
     ) -> None:
         self._content = content
         self._provider = provider
         self._summaries = summaries
         self._finish = finish
+        self._provider_name = provider_name
+        self._logger = logging.getLogger("gmail_mcp")
 
     def execute(
         self,
@@ -71,7 +83,29 @@ class SummarizeAnalysisRun:
                     input_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 )
                 successful.add(candidate.thread_id)
-            except Exception:
+            except SummaryProviderUnavailableError as error:
+                # Do not retry the remaining threads: provider-wide failures are independent
+                # of the thread and repeated attempts can send every matching email body.
+                self._logger.warning(
+                    "summary_provider_failure provider=%s exception_type=%s thread_id=%s",
+                    expected_provider or self._provider_name,
+                    type(error).__name__,
+                    candidate.thread_id,
+                )
+                return self._finish.execute(
+                    run,
+                    "failed",
+                    reason="The selected AI provider is unavailable. Check credentials or billing.",
+                )
+            except Exception as error:
+                # Avoid exception messages and stack traces: provider responses can contain
+                # email content or secrets. Exception type is sufficient for diagnosis.
+                self._logger.warning(
+                    "summary_provider_failure provider=%s exception_type=%s thread_id=%s",
+                    expected_provider or self._provider_name,
+                    type(error).__name__,
+                    candidate.thread_id,
+                )
                 continue
         if len(successful) == len(run.candidates):
             return self._finish.execute(run, "complete")
