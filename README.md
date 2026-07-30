@@ -4,9 +4,8 @@ Lokalna, rozwijana w Pythonie usługa MCP do prywatnej pracy z Gmailem. Projekt
 portfolio pokazuje integrację OAuth 2.0, architekturę heksagonalną i bezpieczne
 przygotowanie pod analizę GenAI (OpenAI lub Claude).
 
-> Aktualny etap: gotowy lokalny OAuth Gmail oraz zarządzanie aktywnym filtrem z dostępem tylko do odczytu. Serwer
-> MCP, pobieranie wiadomości, podsumowania AI i harmonogram są kolejnymi etapami
-> MVP — nie są jeszcze dostępne.
+> Status: MVP ukończone. Usługa lokalnie odczytuje Gmail, tworzy Digesty,
+> udostępnia FastMCP przez `stdio` oraz wykonuje wyłącznie potwierdzone analizy AI.
 
 ## Co działa
 
@@ -16,8 +15,13 @@ przygotowanie pod analizę GenAI (OpenAI lub Claude).
 - Token OAuth poza repozytorium, w prywatnym katalogu danych użytkownika.
 - Ochrona przed symlinkami dla pliku credentials i tokenu oraz ograniczone
   uprawnienia tokenu (`0600` na systemach POSIX).
-- Konfiguracja przyszłego dostawcy AI: OpenAI domyślnie lub Claude, bez wymogu
-  klucza AI do OAuth.
+- Digest wątków Gmail z deduplikacją, lokalnym harmonogramem i retencją danych.
+- Serwer FastMCP z dokładnie trzema narzędziami: odczyt Digestu, potwierdzona
+  analiza ad hoc oraz świadome porównanie OpenAI i Claude.
+- Trzyfazowe potwierdzenie (`preview` → `confirm` → `execute`) przed odczytem
+  body wiadomości lub wywołaniem AI; tokeny są krótkotrwałe, opaque i single-use.
+- OpenAI lub Claude jako lokalnie wybrany dostawca analizy; porównanie wymaga
+  konfiguracji obu dostawców i przekazuje im ten sam oczyszczony tekst.
 
 ## Wymagania
 
@@ -104,15 +108,16 @@ oryginalny plik credentials nie jest już dostępny.
 | --- | --- |
 | `GMAIL_CREDENTIALS_PATH` | Wymagany wyłącznie dla `connect-gmail`; ścieżka do pobranego pliku OAuth poza repozytorium. |
 | `GMAIL_MCP_DATA_DIR` | Opcjonalne lokalne nadpisanie katalogu danych; musi znajdować się poza checkoutem. |
-| `AI_PROVIDER` | Przyszły dostawca podsumowań: `openai` (domyślnie) lub `claude`. |
-| `OPENAI_API_KEY` | Klucz wymagany później, gdy wybrano `openai`. |
-| `ANTHROPIC_API_KEY` | Klucz wymagany później, gdy wybrano `claude`. |
+| `AI_PROVIDER` | Dostawca podsumowań: `openai` (domyślnie) lub `claude`. |
+| `OPENAI_API_KEY` | Klucz wymagany, gdy wybrano `openai`; także dla porównania modeli. |
+| `ANTHROPIC_API_KEY` | Klucz wymagany, gdy wybrano `claude`; także dla porównania modeli. |
 | `DIGEST_SCHEDULE_ENABLED` | `true` (domyślnie) albo `false`; wyłącza cronowy Digest bez zmiany danych. |
 | `DIGEST_SCHEDULE_TIME` | Godzina lokalnego crona w formacie `HH:MM`; domyślnie `08:00`. |
 | `DIGEST_SCHEDULE_TIMEZONE` | Opcjonalna strefa IANA, np. `Europe/Warsaw`, do dokumentacji i konfiguracji crona. |
 
 Zmienne procesu mają pierwszeństwo przed `.env`. OAuth nie wymaga żadnego klucza
-OpenAI ani Anthropic.
+OpenAI ani Anthropic. Analiza ad hoc wymaga klucza wybranego dostawcy, a
+porównanie modeli wymaga obu kluczy.
 
 ## Lokalny harmonogram
 
@@ -126,9 +131,18 @@ starszych niż 30 dni.
 ## Lokalny serwer MCP
 
 `uv run gmail-mcp-server` uruchamia serwer wyłącznie przez transport `stdio`.
-Nie otwiera portu HTTP ani nie wykonuje operacji modyfikujących Gmaila. Udostępnia
-`get_daily_digest` oraz bezpieczne placeholdery przyszłych narzędzi
-`summarize_gmail` i `compare_summaries`.
+Nie otwiera portu HTTP ani nie wykonuje operacji modyfikujących Gmaila.
+
+| Narzędzie | Działanie |
+| --- | --- |
+| `get_daily_digest` | Zwraca ostatni lokalny Digest aktywnego konta. |
+| `summarize_gmail` | Wykonuje potwierdzoną analizę wątków z Aktywnego Filtru lub jednorazowego query. |
+| `compare_summaries` | Porównuje OpenAI i Claude dla jednego wątku z Aktywnego Filtru. |
+
+Narzędzia analityczne działają w trzech fazach: preview pokazuje wyłącznie
+metadata, confirm pobiera i hashuje oczyszczone body po jawnej zgodzie, a execute
+wywołuje AI przy użyciu jednorazowego tokenu. Wszystkie odpowiedzi stosują
+envelope `status`, `data`, `reason`, `next_action`.
 
 ## Bezpieczeństwo i prywatność
 
@@ -141,6 +155,8 @@ Nie otwiera portu HTTP ani nie wykonuje operacji modyfikujących Gmaila. Udostę
 - Retencja i `delete-local-data` usuwają wyłącznie lokalne dane aplikacji; nie
   zmieniają wiadomości, etykiet ani innych danych w Gmailu. Ręczne usunięcie
   zachowuje aktywny filtr i plik credentials OAuth.
+- Usunięcie danych blokuje nowe potwierdzone operacje i bezpiecznie synchronizuje
+  się z już aktywnym odczytem; body, prompty i klucze API nie są zapisywane w SQLite.
 
 ## Architektura i roadmapa
 
@@ -148,12 +164,8 @@ Kod jest podzielony na warstwy `domain`, `application`, `adapters` i `bootstrap`
 Szczegóły decyzji oraz plan prac znajdują się w
 [`_bmad-output/planning-artifacts`](./_bmad-output/planning-artifacts/).
 
-Następne kroki MVP:
-
-1. Konfiguracja filtra Gmail i wyboru dostawcy AI.
-2. Odczyt oraz deduplikacja wątków, następnie podsumowania OpenAI/Claude.
-3. Lokalny harmonogram digestów.
-4. Serwer FastMCP z narzędziami do odczytu digestu i analizy ad hoc.
+MVP obejmuje Epiki 1–3 i jest ukończone. Następny etap to zaplanowanie Epiku 4
+na podstawie potrzeb użytkowników lub rozszerzeń portfolio.
 
 ## Licencja
 
