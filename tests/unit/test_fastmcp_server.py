@@ -102,6 +102,11 @@ async def _assert_comparison_protocol() -> None:
     assert (await server.call_tool("compare_summaries", {"confirmation_token": ""}))[1][
         "status"
     ] == "failed"
+    assert (
+        await server.call_tool(
+            "compare_summaries", {"thread_id": "thread", "preview_token": ""}
+        )
+    )[1]["status"] == "failed"
 
 
 def test_fastmcp_server_routes_three_phase_comparison() -> None:

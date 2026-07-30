@@ -46,5 +46,5 @@ development_status:
   epic-3: in-progress
   3-1-lokalny-serwer-fastmcp-i-odczyt-digestu: done
   3-2-potwierdzona-analiza-ad-hoc-przez-wybranego-dostawce: done
-  3-3-swiadome-porownanie-openai-i-claude: review
+  3-3-swiadome-porownanie-openai-i-claude: done
   epic-3-retrospective: optional

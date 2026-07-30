@@ -77,6 +77,11 @@ def create_server(
         if compare is None:
             return _failed("Summary comparison is not available yet.", "Configure both providers.")
         try:
+            if preview_token is not None and not preview_token:
+                return _failed(
+                    "A valid preview token is required.",
+                    "Refresh the preview and confirm it again.",
+                )
             if confirmation_token is not None and not confirmation_token:
                 return _failed(
                     "A valid confirmation token is required.",

@@ -1,6 +1,6 @@
 ---
 title: 'Story 3.3: Świadome porównanie OpenAI i Claude'
-status: review
+status: done
 baseline_commit: 1bf2f85
 created: 2026-07-29
 ---
@@ -55,10 +55,12 @@ Nieobsługiwane kombinacje parametrów, w tym pusty token, są `failed`; nie mog
 
 ### Review Findings
 
-- [ ] [Review][Patch] Revalidate the current Active Filter before body access [src/gmail_mcp/application/confirmed_comparison.py:115] — a filter changed after preview can otherwise allow a persisted candidate to be fetched and compared outside the current filter scope (AC 1–3).
-- [ ] [Review][Patch] Preserve both provider results when neither provider succeeds [src/gmail_mcp/application/confirmed_comparison.py:195] — the failed envelope currently discards the already-built per-provider records and their safe reasons (AC 4–5).
-- [ ] [Review][Patch] Return a safe, distinct provider-failure reason [src/gmail_mcp/application/confirmed_comparison.py:208] — configuration absence, invalid output, and provider unavailability currently collapse to one generic reason, hiding the independent cause required by AC 4–5.
-- [ ] [Review][Patch] Reject an empty preview token before phase routing [src/gmail_mcp/adapters/fastmcp_server.py:80] — `thread_id` with `preview_token=""` currently starts a new preview although unsupported combinations and empty tokens must fail without side effects (MCP contract).
+- [x] [Review][Patch] Revalidate the current Active Filter before body access [src/gmail_mcp/application/confirmed_comparison.py:115] — fixed: confirmation and execution now reject a changed active filter before body access (AC 1–3).
+- [x] [Review][Patch] Preserve both provider results when neither provider succeeds [src/gmail_mcp/application/confirmed_comparison.py:195] — fixed: terminal failure retains both safe provider-result records (AC 4–5).
+- [x] [Review][Patch] Return a safe, distinct provider-failure reason [src/gmail_mcp/application/confirmed_comparison.py:208] — fixed: configuration, request, and invalid-summary failures have distinct sanitized reasons (AC 4–5).
+- [x] [Review][Patch] Reject an empty preview token before phase routing [src/gmail_mcp/adapters/fastmcp_server.py:80] — fixed: empty preview tokens fail before routing or side effects (MCP contract).
+- [x] [Review][Patch] Revalidate current candidate membership before body access [src/gmail_mcp/application/confirmed_comparison.py:128] — fixed: confirmation and execution rediscover the candidate under the unchanged active filter before body access (AC 1 and AC 3).
+- [x] [Review][Patch] Keep malformed provider output inside per-provider isolation [src/gmail_mcp/application/confirmed_comparison.py:236] — fixed: validation and serialization failures become an invalid-summary result and do not block the other provider (AC 4–5).
 
 ## Dev Notes
 

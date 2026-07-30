@@ -125,6 +125,10 @@ class ConfirmedComparison:
                 or len(preview.candidates) != 1
             ):
                 return _failed("The comparison preview is invalid or expired.", REFRESH)
+            if not self._candidate_is_current(
+                account, preview.candidates[0], preview.query, preview.filter_hash
+            ):
+                return _failed("The Gmail thread is no longer in the active filter.", REFRESH)
             text = self._gmail.fetch_clean_text(preview.candidates[0])
             if self._account() != account:
                 return _failed("Gmail account changed during confirmation.", REFRESH)
@@ -165,6 +169,10 @@ class ConfirmedComparison:
             ):
                 return _failed("The comparison token is invalid or expired.", REFRESH)
             candidate = confirmation.candidates[0]
+            if not self._candidate_is_current(
+                account, candidate, confirmation.query, confirmation.filter_hash
+            ):
+                return _failed("The Gmail thread is no longer in the active filter.", REFRESH)
             text = self._gmail.fetch_clean_text(candidate)
             if (
                 self._account() != account
@@ -194,7 +202,7 @@ class ConfirmedComparison:
                 }
             return {
                 "status": "failed",
-                "data": None,
+                "data": data,
                 "reason": "Neither provider could complete the comparison.",
                 "next_action": "Check provider configuration and retry with a new confirmation.",
             }
@@ -203,6 +211,21 @@ class ConfirmedComparison:
 
     def _account(self) -> str:
         return _fingerprint(self._gmail.current_account_email())
+
+    def _candidate_is_current(
+        self, account: str, candidate: ThreadCandidate, query: str, expected_hash: str
+    ) -> bool:
+        email = self._gmail.current_account_email()
+        filter_ = self._filters.load(email) or GmailFilter.default()
+        current_hash = filter_hash(filter_.query)
+        if (
+            _fingerprint(email) != account
+            or candidate.account_fingerprint != account
+            or filter_.query != query
+            or current_hash != expected_hash
+        ):
+            return False
+        return candidate in self._gmail.find_thread_candidates(account, filter_.query, current_hash)
 
 
 def _provider_result(
@@ -217,26 +240,36 @@ def _provider_result(
         }
     try:
         summary = provider.summarize(account_fingerprint=account, thread_id=thread_id, text=text)
-        if (
-            summary.provider != name
-            or summary.account_fingerprint != account
-            or summary.thread_id != thread_id
-            or summary.schema_version != 1
-        ):
-            raise ValueError()
-        return {
-            "provider": name,
-            "status": "complete",
-            "summary": _summary(summary),
-            "reason": None,
-        }
     except Exception:
         return {
             "provider": name,
             "status": "failed",
             "summary": None,
-            "reason": "Provider could not complete the comparison.",
+            "reason": "Provider request failed.",
         }
+    try:
+        valid = (
+            summary.provider == name
+            and summary.account_fingerprint == account
+            and summary.thread_id == thread_id
+            and summary.schema_version == 1
+        )
+        result = _summary(summary) if valid else None
+    except Exception:
+        valid, result = False, None
+    if not valid:
+        return {
+            "provider": name,
+            "status": "failed",
+            "summary": None,
+            "reason": "Provider returned an invalid summary.",
+        }
+    return {
+        "provider": name,
+        "status": "complete",
+        "summary": result,
+        "reason": None,
+    }
 
 
 def _summary(summary: ThreadSummary) -> dict[str, object]:

@@ -37,9 +37,12 @@ class Gmail:
         return self.texts[candidate.thread_id]
 
 
+@dataclass
 class Filters:
+    query: str = "label:work"
+
     def load(self, email):
-        return GmailFilter("label:work")
+        return GmailFilter(self.query)
 
 
 @dataclass
@@ -89,10 +92,19 @@ class Provider:
         return ThreadSummary(account_fingerprint, thread_id, "Krótko.", "niski", (), self.name)
 
 
-def _service(gmail, openai=None, claude=None):
+@dataclass
+class MalformedProvider:
+    calls: list[str] = field(default_factory=list)
+
+    def summarize(self, *, account_fingerprint, thread_id, text):
+        self.calls.append(text)
+        return None
+
+
+def _service(gmail, openai=None, claude=None, filters=None):
     return ConfirmedComparison(
         gmail,
-        Filters(),
+        filters or Filters(),
         Tokens(),
         {"openai": openai or Provider("openai"), "claude": claude or Provider("claude")},
         now=lambda: datetime(2026, 7, 29, tzinfo=UTC),
@@ -166,6 +178,38 @@ def test_changed_input_fails_before_provider_calls() -> None:
     assert openai.calls == claude.calls == []
 
 
+def test_changed_active_filter_fails_before_body_access() -> None:
+    account = _account()
+    gmail = Gmail(
+        [ThreadCandidate(account, "thread", "m", "2026-07-29T00:00:00+00:00", "x")],
+        {"thread": "same text"},
+    )
+    openai, claude = Provider("openai"), Provider("claude")
+    filters = Filters()
+    service = _service(gmail, openai, claude, filters)
+    preview = service.preview("thread")["data"]
+    filters.query = "label:other"
+
+    assert service.confirm(preview["preview_token"])["status"] == "failed"
+    assert gmail.text_calls == 0
+    assert openai.calls == claude.calls == []
+
+
+def test_removed_candidate_after_confirmation_fails_before_second_body_access() -> None:
+    account = _account()
+    candidate = ThreadCandidate(account, "thread", "m", "2026-07-29T00:00:00+00:00", "x")
+    gmail = Gmail([candidate], {"thread": "same text"})
+    openai, claude = Provider("openai"), Provider("claude")
+    service = _service(gmail, openai, claude)
+    preview = service.preview("thread")["data"]
+    confirmation = service.confirm(preview["preview_token"])["data"]
+    gmail.candidates = []
+
+    assert service.execute(confirmation["confirmation_token"])["status"] == "failed"
+    assert gmail.text_calls == 1
+    assert openai.calls == claude.calls == []
+
+
 def test_both_provider_failures_return_failed_after_one_call_each() -> None:
     account = _account()
     gmail = Gmail(
@@ -179,5 +223,25 @@ def test_both_provider_failures_return_failed_after_one_call_each() -> None:
 
     result = service.execute(confirmation["confirmation_token"])
     assert result["status"] == "failed"
-    assert result["data"] is None
+    assert [item["reason"] for item in result["data"]["results"]] == [
+        "Provider request failed.",
+        "Provider request failed.",
+    ]
+    assert openai.calls == claude.calls == ["same text"]
+
+
+def test_malformed_provider_result_does_not_block_other_provider() -> None:
+    account = _account()
+    gmail = Gmail(
+        [ThreadCandidate(account, "thread", "m", "2026-07-29T00:00:00+00:00", "x")],
+        {"thread": "same text"},
+    )
+    openai, claude = MalformedProvider(), Provider("claude")
+    service = _service(gmail, openai, claude)
+    preview = service.preview("thread")["data"]
+    confirmation = service.confirm(preview["preview_token"])["data"]
+
+    result = service.execute(confirmation["confirmation_token"])
+    assert result["status"] == "partial"
+    assert result["data"]["results"][0]["reason"] == "Provider returned an invalid summary."
     assert openai.calls == claude.calls == ["same text"]
