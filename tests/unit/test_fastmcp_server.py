@@ -31,6 +31,15 @@ class FakeSummarize:
         }
 
 
+class FakeCompare(FakeSummarize):
+    def preview(self, thread_id=None):
+        return {
+            "status": "complete",
+            "data": {"phase": "preview", "thread_id": thread_id},
+            "reason": None,
+            "next_action": None,
+        }
+
 async def _assert_tools() -> None:
     server = create_server(
         lambda account: {
@@ -75,3 +84,30 @@ async def _assert_confirmed_protocol() -> None:
 
 def test_fastmcp_server_routes_three_phase_confirmed_analysis() -> None:
     asyncio.run(_assert_confirmed_protocol())
+
+
+async def _assert_comparison_protocol() -> None:
+    server = create_server(lambda _: {}, lambda: "account", FakeSummarize(), FakeCompare())
+
+    assert (await server.call_tool("compare_summaries", {"thread_id": "thread"}))[1]["data"] == {
+        "phase": "preview",
+        "thread_id": "thread",
+    }
+    assert (
+        await server.call_tool("compare_summaries", {"preview_token": "preview", "confirm": True})
+    )[1]["data"] == {"phase": "confirmed", "token": "preview"}
+    assert (await server.call_tool("compare_summaries", {"confirmation_token": "confirmed"}))[1][
+        "data"
+    ] == {"phase": "executed", "token": "confirmed"}
+    assert (await server.call_tool("compare_summaries", {"confirmation_token": ""}))[1][
+        "status"
+    ] == "failed"
+    assert (
+        await server.call_tool(
+            "compare_summaries", {"thread_id": "thread", "preview_token": ""}
+        )
+    )[1]["status"] == "failed"
+
+
+def test_fastmcp_server_routes_three_phase_comparison() -> None:
+    asyncio.run(_assert_comparison_protocol())

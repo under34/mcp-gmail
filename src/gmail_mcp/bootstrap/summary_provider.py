@@ -15,3 +15,13 @@ def create_summary_provider(settings: Settings) -> SummaryProviderPort:
     if not settings.anthropic_api_key:
         raise ConfigurationError("ANTHROPIC_API_KEY is required for the selected AI_PROVIDER.")
     return ClaudeSummaryProviderAdapter(settings.anthropic_api_key)
+
+
+def create_comparison_providers(settings: Settings) -> dict[str, SummaryProviderPort]:
+    """Compose both concrete providers for an explicitly confirmed comparison."""
+    if not settings.openai_api_key or not settings.anthropic_api_key:
+        raise ConfigurationError("Both AI providers must be configured for comparison.")
+    return {
+        "openai": OpenAISummaryProviderAdapter(settings.openai_api_key),
+        "claude": ClaudeSummaryProviderAdapter(settings.anthropic_api_key),
+    }
