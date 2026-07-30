@@ -60,13 +60,26 @@ class RunDailyDigest:
             covered_from=run.covered_from,
             covered_to=run.covered_to,
             matching_thread_count=len(run.candidates),
-            items=tuple(
-                DigestItem(summary, reasons.get(summary.thread_id, "new_message"))
-                for summary in summaries
+            items=(
+                ()
+                if run.status == "failed"
+                else tuple(
+                    DigestItem(summary, reasons.get(summary.thread_id, "new_message"))
+                    for summary in summaries
+                )
             ),
             provider=self._provider,
             reason=run.reason,
-            next_action=None if run.status == "complete" else action,
+            next_action=(
+                None
+                if run.status == "complete"
+                else (
+                    "Check the selected provider credentials or billing, then retry."
+                    if run.reason
+                    == "The selected AI provider is unavailable. Check credentials or billing."
+                    else action
+                )
+            ),
         )
         try:
             self._digests.save_digest(digest)

@@ -12,6 +12,7 @@ from gmail_mcp.application.confirmed_analysis import ConfirmedAdHocAnalysis
 from gmail_mcp.application.confirmed_comparison import ConfirmedComparison
 from gmail_mcp.application.digest_read import GetDailyDigest
 from gmail_mcp.application.thread_summary import SummarizeAnalysisRun
+from gmail_mcp.bootstrap.logging import configure_logging
 from gmail_mcp.bootstrap.settings import (
     ConfigurationError,
     load_gmail_settings,
@@ -53,6 +54,9 @@ def main() -> int:
     reader = GetDailyDigest(state)
     try:
         settings = load_settings()
+        configure_logging(
+            secrets=(settings.openai_api_key or "", settings.anthropic_api_key or "")
+        )
         ad_hoc = ConfirmedAdHocAnalysis(
             gmail,
             ActiveFilterRepositoryAdapter(settings.paths.filters),
@@ -60,7 +64,11 @@ def main() -> int:
             PlanAnalysis(state),
             FinishAnalysis(state),
             SummarizeAnalysisRun(
-                gmail, create_summary_provider(settings), state, FinishAnalysis(state)
+                gmail,
+                create_summary_provider(settings),
+                state,
+                FinishAnalysis(state),
+                settings.ai_provider,
             ),
             state,
             provider=settings.ai_provider,
