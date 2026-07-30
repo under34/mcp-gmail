@@ -43,7 +43,7 @@ development_status:
   2-4-retencja-i-reczne-usuwanie-lokalnych-danych: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
+  epic-3: done
   3-1-lokalny-serwer-fastmcp-i-odczyt-digestu: done
   3-2-potwierdzona-analiza-ad-hoc-przez-wybranego-dostawce: done
   3-3-swiadome-porownanie-openai-i-claude: done
