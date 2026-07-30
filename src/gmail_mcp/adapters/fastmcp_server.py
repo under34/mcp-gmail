@@ -31,6 +31,8 @@ def create_server(
         """Return the latest local daily Gmail digest for the active account."""
         try:
             account = account_fingerprint()
+            if account_fingerprint() != account:
+                return _failed("Gmail account changed during digest lookup.", "Retry later.")
             result = get_digest(account)
             if account_fingerprint() != account:
                 return _failed("Gmail account changed during digest lookup.", "Retry later.")
@@ -51,6 +53,11 @@ def create_server(
                 "Ad-hoc analysis is not available yet.", "Use a later version of this tool."
             )
         try:
+            if preview_token is not None and not preview_token:
+                return _failed(
+                    "A valid preview token is required.",
+                    "Refresh the preview and confirm it again.",
+                )
             if confirmation_token is not None and not confirmation_token:
                 return _failed(
                     "A valid confirmation token is required.",

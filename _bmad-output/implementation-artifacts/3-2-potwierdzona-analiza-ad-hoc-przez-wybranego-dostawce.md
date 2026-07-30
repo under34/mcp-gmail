@@ -65,6 +65,16 @@ Jeśli implementacja połączy kroki 1–2 w inny kształt parametrów narzędzi
 - [x] [Review][Patch] Zapisuj i weryfikuj niezależny hash uporządkowanej migawki w SQLite przed deserializacją/wykonaniem, aby uszkodzony rekord nie mógł podmienić Wątków poza zatwierdzonym zakresem. [src/gmail_mcp/adapters/sqlite_confirmation.py:22]
 - [x] [Review][Patch] Włącz `analysis_confirmation` do bramki i ręcznego usuwania danych konta; w przeciwnym razie nieusunięty token może po czyszczeniu ponownie odczytać Gmail i wywołać AI. [src/gmail_mcp/adapters/sqlite_analysis_state.py:258]
 - [x] [Review][Patch] Traktuj jawnie podany pusty `confirmation_token` jako nieprawidłowe wykonanie, nie jako nowy preview. [src/gmail_mcp/adapters/fastmcp_server.py:47]
+- [x] [Review][Patch] Blokuj zapisywanie i konsumpcję potwierdzeń podczas aktywnej bramki usuwania konta [src/gmail_mcp/adapters/sqlite_confirmation.py:84] — poprawiono: zapisywanie kończy się fail-closed, a konsumpcja zwraca brak potwierdzenia, gdy bramka jest aktywna.
+- [x] [Review][Patch] Nie przechowuj jawnego Gmail query w rekordzie potwierdzenia [src/gmail_mcp/adapters/sqlite_confirmation.py:91] — poprawiono: nowe i istniejące rekordy mają pustą wartość query; zachowany jest wyłącznie hash filtra.
+- [x] [Review][Patch] Weryfikuj, że summary zwraca lokalnie wybranego dostawcę [src/gmail_mcp/application/thread_summary.py:53] — poprawiono: niezgodny dostawca jest odrzucany przed zapisem i wynikiem.
+- [x] [Review][Decision] Ustal semantykę usuwania danych wobec potwierdzonego wykonania będącego już w toku — rozstrzygnięto: usuwanie blokuje nowe operacje i czeka na zwolnienie lease przez trwające wykonanie przed czyszczeniem danych.
+- [x] [Review][Patch] Dodaj lease aktywnego wykonania konta, które blokuje rozpoczęcie usuwania do czasu zakończenia pobrania body i analizy [src/gmail_mcp/application/confirmed_analysis.py:195] — poprawiono: bramka czeka na lease, a wykonanie nabywa go przed odczytem body i zwalnia po analizie.
+- [x] [Review][Patch] Odrzuć jawnie pusty `preview_token` w `summarize_gmail` [src/gmail_mcp/adapters/fastmcp_server.py:54] — poprawiono: pusty token jest błędem przed routingiem i bez side effectów.
+- [x] [Review][Decision] Ustal limit oczekiwania na aktywny lease podczas usuwania danych — rozstrzygnięto: maksymalnie 60 sekund, następnie bezpieczny błąd z instrukcją ponowienia usuwania.
+- [x] [Review][Patch] Zakończ usuwanie bezpiecznym błędem po 60 sekundach oczekiwania na lease [src/gmail_mcp/adapters/sqlite_analysis_state.py:303] — poprawiono: bramka jest odnawiana podczas oczekiwania, a limit zwraca bezpieczny błąd.
+- [x] [Review][Patch] Obejmij lease także fazę potwierdzenia przed pobraniem body [src/gmail_mcp/application/confirmed_analysis.py:154] — poprawiono: lease obejmuje pobranie body i zapis tokenu potwierdzenia.
+- [x] [Review][Patch] Serializuj inicjalizację i migrację SQLite potwierdzeń w jednej transakcji [src/gmail_mcp/adapters/sqlite_confirmation.py:21] — poprawiono: schema i migracje są wykonywane w `BEGIN IMMEDIATE`.
 
 ## Dev Notes
 

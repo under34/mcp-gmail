@@ -46,6 +46,10 @@ class ConfirmationPort(Protocol):
         self, token: str, *, account_fingerprint: str, now: datetime
     ) -> AnalysisConfirmation | None: ...
 
+    def acquire_execution_lease(self, account_fingerprint: str) -> str | None: ...
+
+    def release_execution_lease(self, account_fingerprint: str, token: str) -> None: ...
+
 
 class PlanAnalysisPort(Protocol):
     def execute(
@@ -60,7 +64,11 @@ class PlanAnalysisPort(Protocol):
 
 class SummarizeRunPort(Protocol):
     def execute(
-        self, run: AnalysisRun, *, texts: Mapping[str, str] | None = None
+        self,
+        run: AnalysisRun,
+        *,
+        texts: Mapping[str, str] | None = None,
+        expected_provider: str | None = None,
     ) -> AnalysisRun: ...
 
 
@@ -157,20 +165,28 @@ class ConfirmedAdHocAnalysis:
                 return _failed(
                     "The analysis preview is invalid or expired.", REFRESH_PREVIEW_ACTION
                 )
-            texts = self._fetch_snapshot(preview.candidates)
-            if self._current_account() != account:
-                return _failed("Gmail account changed during confirmation.", REFRESH_PREVIEW_ACTION)
-            confirmation = AnalysisConfirmation(
-                account,
-                OPERATION,
-                preview.query,
-                preview.filter_hash,
-                preview.candidates,
-                self._provider,
-                analysis_input_hash(texts),
-                self._now() + self._confirmation_ttl,
-            )
-            token = self._confirmations.save_confirmation(confirmation)
+            lease = self._confirmations.acquire_execution_lease(account)
+            if lease is None:
+                return _failed("Gmail data deletion is in progress.", REFRESH_PREVIEW_ACTION)
+            try:
+                texts = self._fetch_snapshot(preview.candidates)
+                if self._current_account() != account:
+                    return _failed(
+                        "Gmail account changed during confirmation.", REFRESH_PREVIEW_ACTION
+                    )
+                confirmation = AnalysisConfirmation(
+                    account,
+                    OPERATION,
+                    preview.query,
+                    preview.filter_hash,
+                    preview.candidates,
+                    self._provider,
+                    analysis_input_hash(texts),
+                    self._now() + self._confirmation_ttl,
+                )
+                token = self._confirmations.save_confirmation(confirmation)
+            finally:
+                self._confirmations.release_execution_lease(account, lease)
             return _complete(
                 {
                     "phase": "confirmed",
@@ -200,52 +216,57 @@ class ConfirmedAdHocAnalysis:
                 return _failed(
                     "The confirmation token is invalid or expired.", REFRESH_PREVIEW_ACTION
                 )
+            lease = self._confirmations.acquire_execution_lease(account)
+            if lease is None:
+                return _failed("Gmail data deletion is in progress.", REFRESH_PREVIEW_ACTION)
+            try:
+                texts = self._fetch_snapshot(confirmation.candidates)
+                if (
+                    self._current_account() != account
+                    or analysis_input_hash(texts) != confirmation.input_hash
+                ):
+                    return _failed(
+                        "The confirmed Gmail input changed before analysis.", REFRESH_PREVIEW_ACTION
+                    )
 
-            texts = self._fetch_snapshot(confirmation.candidates)
-            if (
-                self._current_account() != account
-                or analysis_input_hash(texts) != confirmation.input_hash
-            ):
-                return _failed(
-                    "The confirmed Gmail input changed before analysis.", REFRESH_PREVIEW_ACTION
+                run = self._planner.execute(
+                    account,
+                    list(confirmation.candidates),
+                    reanalysis=True,
+                    filter_hash=confirmation.filter_hash,
                 )
-
-            run = self._planner.execute(
-                account,
-                list(confirmation.candidates),
-                reanalysis=True,
-                filter_hash=confirmation.filter_hash,
-            )
-            if run.candidates != confirmation.candidates:
+                if run.candidates != confirmation.candidates:
+                    if run.status == "running":
+                        self._finish.execute(run, "failed", reason="Confirmed Gmail scope is busy.")
+                    return _failed("Confirmed Gmail scope is unavailable.", REFRESH_PREVIEW_ACTION)
                 if run.status == "running":
-                    self._finish.execute(run, "failed", reason="Confirmed Gmail scope is busy.")
-                return _failed("Confirmed Gmail scope is unavailable.", REFRESH_PREVIEW_ACTION)
-            if run.status == "running":
-                run = self._summarize.execute(
-                    run,
-                    texts={
-                        candidate.thread_id: text
-                        for candidate, text in zip(confirmation.candidates, texts, strict=True)
-                    },
-                )
-            summaries = self._summaries.summaries_for_run(run.run_id)
-            data = {
-                "query": confirmation.query,
-                "thread_ids": list(
-                    confirmation.candidates[i].thread_id
-                    for i in range(len(confirmation.candidates))
-                ),
-                "provider": confirmation.provider,
-                "summaries": [_summary_data(summary) for summary in summaries],
-            }
-            if run.status == "complete":
-                return _complete(data)
-            return {
-                "status": run.status,
-                "data": data if run.status == "partial" else None,
-                "reason": run.reason or "Gmail analysis could not be completed.",
-                "next_action": "Retry with a new confirmed preview.",
-            }
+                    run = self._summarize.execute(
+                        run,
+                        texts={
+                            candidate.thread_id: text
+                            for candidate, text in zip(confirmation.candidates, texts, strict=True)
+                        },
+                        expected_provider=confirmation.provider,
+                    )
+                summaries = self._summaries.summaries_for_run(run.run_id)
+                data = {
+                    "thread_ids": list(
+                        confirmation.candidates[i].thread_id
+                        for i in range(len(confirmation.candidates))
+                    ),
+                    "provider": confirmation.provider,
+                    "summaries": [_summary_data(summary) for summary in summaries],
+                }
+                if run.status == "complete":
+                    return _complete(data)
+                return {
+                    "status": run.status,
+                    "data": data if run.status == "partial" else None,
+                    "reason": run.reason or "Gmail analysis could not be completed.",
+                    "next_action": "Retry with a new confirmed preview.",
+                }
+            finally:
+                self._confirmations.release_execution_lease(account, lease)
         except Exception:
             return _failed("The confirmed Gmail analysis is unavailable.", REFRESH_PREVIEW_ACTION)
 

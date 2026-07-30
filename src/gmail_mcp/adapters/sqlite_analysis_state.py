@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -17,6 +19,7 @@ class SqliteAnalysisStateAdapter:
 
     _LEASE_DURATION = timedelta(minutes=15)
     _DELETION_LEASE_DURATION = timedelta(minutes=5)
+    _DELETION_WAIT_SECONDS = 60
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -72,6 +75,18 @@ class SqliteAnalysisStateAdapter:
                 """CREATE TABLE IF NOT EXISTS account_deletion_gate (
                     account TEXT PRIMARY KEY, expires_at TEXT NOT NULL)"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS account_execution_lease (
+                    account TEXT PRIMARY KEY, token TEXT NOT NULL, owner_pid INTEGER NOT NULL)"""
+            )
+            lease_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(account_execution_lease)")
+            }
+            if "owner_pid" not in lease_columns:
+                connection.execute(
+                    "ALTER TABLE account_execution_lease "
+                    "ADD COLUMN owner_pid INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS thread_summary (
                     account TEXT NOT NULL, thread_id TEXT NOT NULL, run_id TEXT NOT NULL,
@@ -183,24 +198,29 @@ class SqliteAnalysisStateAdapter:
                 "WHERE item.run_id = ? ORDER BY item.position",
                 (account_fingerprint, row[0]),
             ).fetchall()
-        items = tuple(
-            DigestItem(
-                ThreadSummary(
-                    account_fingerprint,
-                    str(item[0]),
-                    str(item[1]),
-                    str(item[2]),
-                    tuple(json.loads(str(item[3]))),
-                    str(item[4]),
-                ),
-                str(item[5]),
-            )
-            for item in item_rows
-        )
+        items: list[DigestItem] = []
+        incomplete = False
+        for item in item_rows:
+            try:
+                items.append(
+                    DigestItem(
+                        ThreadSummary(
+                            account_fingerprint,
+                            str(item[0]),
+                            str(item[1]),
+                            str(item[2]),
+                            tuple(json.loads(str(item[3]))),
+                            str(item[4]),
+                        ),
+                        str(item[5]),
+                    )
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                incomplete = True
         status = str(row[2])
         reason = row[8]
         next_action = row[9]
-        if status == "complete" and len(items) != int(row[6]):
+        if status == "complete" and (incomplete or len(items) != int(row[6])):
             status = "partial"
             reason = "Local digest items are incomplete."
             next_action = "Run the daily digest again."
@@ -212,7 +232,7 @@ class SqliteAnalysisStateAdapter:
             row[4],
             row[5],
             int(row[6]),
-            items,
+            tuple(items),
             row[7],
             reason,
             next_action,
@@ -260,6 +280,12 @@ class SqliteAnalysisStateAdapter:
                         (datetime.now(UTC) + self._DELETION_LEASE_DURATION).isoformat(),
                     ),
                 )
+        except sqlite3.Error as error:
+            raise AnalysisStateError("Local data deletion is unavailable.") from error
+        self._wait_for_execution_lease(account_fingerprint)
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
                 run_ids = connection.execute(
                     "SELECT run_id FROM analysis_run WHERE account = ? AND status = 'running'",
                     (account_fingerprint,),
@@ -279,6 +305,36 @@ class SqliteAnalysisStateAdapter:
                 )
         except sqlite3.Error as error:
             raise AnalysisStateError("Local data deletion is unavailable.") from error
+
+    def _wait_for_execution_lease(self, account_fingerprint: str) -> None:
+        deadline = time.monotonic() + self._DELETION_WAIT_SECONDS
+        while True:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "UPDATE account_deletion_gate SET expires_at = ? WHERE account = ?",
+                    (
+                        (datetime.now(UTC) + self._DELETION_LEASE_DURATION).isoformat(),
+                        account_fingerprint,
+                    ),
+                )
+                active = connection.execute(
+                    "SELECT token, owner_pid FROM account_execution_lease WHERE account = ?",
+                    (account_fingerprint,),
+                ).fetchone()
+            if active is None:
+                return
+            if not _process_is_alive(int(active[1])):
+                with self._connect() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    connection.execute(
+                        "DELETE FROM account_execution_lease WHERE account = ? AND token = ?",
+                        (account_fingerprint, active[0]),
+                    )
+                continue
+            if time.monotonic() >= deadline:
+                raise AnalysisStateError("Local data deletion is waiting for an active operation.")
+            time.sleep(0.05)
 
     def delete_account_data(self, account_fingerprint: str) -> LocalDataResult:
         try:
@@ -707,3 +763,15 @@ class SqliteAnalysisStateAdapter:
             "DELETE FROM account_deletion_gate WHERE expires_at <= ?",
             (datetime.now(UTC).isoformat(),),
         )
+
+
+def _process_is_alive(process_id: int) -> bool:
+    if process_id <= 0:
+        return False
+    try:
+        os.kill(process_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

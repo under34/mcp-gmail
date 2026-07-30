@@ -48,3 +48,17 @@ def test_summary_run_is_partial_when_one_thread_fails() -> None:
     assert result.status == "partial"
     assert summaries.saved == ["good"]
     assert finish.successful == {"good"}
+
+
+def test_summary_run_rejects_a_summary_from_an_unexpected_provider() -> None:
+    run = AnalysisRun.create(
+        "account", [ThreadCandidate("account", "good", "1", "2026-01-01T00:00:00+00:00", "filter")]
+    )
+    summaries, finish = FakeSummaries(), FakeFinish()
+
+    result = SummarizeAnalysisRun(FakeContent(), FakeProvider(), summaries, finish).execute(
+        run, expected_provider="claude"
+    )
+
+    assert result.status == "failed"
+    assert summaries.saved == []
