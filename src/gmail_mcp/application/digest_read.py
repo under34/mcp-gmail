@@ -20,6 +20,12 @@ class GetDailyDigest:
             return _failed("Local digest state is unavailable.", "Retry later.")
         if digest is None:
             return _failed("No daily digest is available.", "Run the daily digest first.")
+        if digest.status == "complete":
+            reason, next_action = None, None
+        elif digest.reason and digest.next_action:
+            reason, next_action = digest.reason, digest.next_action
+        else:
+            return _failed("Local digest is incomplete.", "Run the daily digest again.")
         data = {
             "generated_at": digest.generated_at,
             "covered_from": digest.covered_from,
@@ -43,8 +49,8 @@ class GetDailyDigest:
         return {
             "status": digest.status,
             "data": data if digest.status != "failed" else None,
-            "reason": digest.reason,
-            "next_action": digest.next_action,
+            "reason": reason,
+            "next_action": next_action,
         }
 
 
