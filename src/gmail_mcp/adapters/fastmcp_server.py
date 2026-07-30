@@ -31,6 +31,8 @@ def create_server(
         """Return the latest local daily Gmail digest for the active account."""
         try:
             account = account_fingerprint()
+            if account_fingerprint() != account:
+                return _failed("Gmail account changed during digest lookup.", "Retry later.")
             result = get_digest(account)
             if account_fingerprint() != account:
                 return _failed("Gmail account changed during digest lookup.", "Retry later.")

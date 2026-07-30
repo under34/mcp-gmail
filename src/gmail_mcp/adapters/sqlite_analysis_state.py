@@ -198,24 +198,29 @@ class SqliteAnalysisStateAdapter:
                 "WHERE item.run_id = ? ORDER BY item.position",
                 (account_fingerprint, row[0]),
             ).fetchall()
-        items = tuple(
-            DigestItem(
-                ThreadSummary(
-                    account_fingerprint,
-                    str(item[0]),
-                    str(item[1]),
-                    str(item[2]),
-                    tuple(json.loads(str(item[3]))),
-                    str(item[4]),
-                ),
-                str(item[5]),
-            )
-            for item in item_rows
-        )
+        items: list[DigestItem] = []
+        incomplete = False
+        for item in item_rows:
+            try:
+                items.append(
+                    DigestItem(
+                        ThreadSummary(
+                            account_fingerprint,
+                            str(item[0]),
+                            str(item[1]),
+                            str(item[2]),
+                            tuple(json.loads(str(item[3]))),
+                            str(item[4]),
+                        ),
+                        str(item[5]),
+                    )
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                incomplete = True
         status = str(row[2])
         reason = row[8]
         next_action = row[9]
-        if status == "complete" and len(items) != int(row[6]):
+        if status == "complete" and (incomplete or len(items) != int(row[6])):
             status = "partial"
             reason = "Local digest items are incomplete."
             next_action = "Run the daily digest again."
@@ -227,7 +232,7 @@ class SqliteAnalysisStateAdapter:
             row[4],
             row[5],
             int(row[6]),
-            items,
+            tuple(items),
             row[7],
             reason,
             next_action,
